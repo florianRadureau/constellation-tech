@@ -60,3 +60,36 @@ class TestValidateFile:
         CVParser.validate_file(b"content", "cv.PDF")
         CVParser.validate_file(b"content", "cv.Pdf")
         CVParser.validate_file(b"content", "cv.DOCX")
+
+class TestCleanText:
+    """Tests de la méthode _clean_text (TDD)."""
+
+    def test_multiple_consecutive_newlines(self):
+        """Test que les newlines consécutifs deviennent un seul."""
+        dirty = "Ligne1\n\n\nLigne2"
+        expected = "Ligne1\nLigne2"
+        assert CVParser._clean_text(dirty) == expected
+
+    def test_multiple_spaces(self):
+        """Test que les espaces multiples deviennent un seul."""
+        dirty = "Mot1    Mot2"
+        expected = "Mot1 Mot2"
+        assert CVParser._clean_text(dirty) == expected
+
+    def test_tabs_become_single_space(self):
+        """Test que les tabs deviennent un espace."""
+        dirty = "Mot1\t\tMot2"
+        expected = "Mot1 Mot2"
+        assert CVParser._clean_text(dirty) == expected
+
+    def test_strip_each_line(self):
+        """Test que chaque ligne est strippée."""
+        dirty = "  Ligne1  \n  Ligne2  "
+        expected = "Ligne1\nLigne2"
+        assert CVParser._clean_text(dirty) == expected
+
+    def test_global_strip(self):
+        """Test strip global du texte."""
+        dirty = "\n\n  Texte  \n\n"
+        expected = "Texte"
+        assert CVParser._clean_text(dirty) == expected

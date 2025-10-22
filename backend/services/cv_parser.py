@@ -62,3 +62,32 @@ class CVParser:
                 f"Fichier trop volumineux ({size_mb:.1f} MB). "
                 f"Taille maximale : {max_mb:.0f} MB"
             )
+
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        """
+        Nettoie le texte extrait.
+
+        Opérations :
+        - Remplace sauts de ligne multiples par un seul
+        - Remplace espaces/tabs multiples par un seul espace
+        - Enlève espaces début/fin de chaque ligne
+        - Trim général
+
+        Args:
+            text: Texte brut extrait
+
+        Returns:
+            Texte nettoyé
+        """
+        text = re.sub(r'\n+', '\n', text)
+        text = re.sub(r'[ \t]+', ' ', text)
+
+        lines = text.split('\n')
+        lines = [line.strip() for line in lines]
+        text = '\n'.join(lines)
+        text = text.strip()
+
+        return text
+
+
