@@ -116,3 +116,23 @@ class TestExtractTextFromPdf:
 
         with pytest.raises(CVParserError):
             CVParser.extract_text_from_pdf(corrupted)
+
+class TestExtractTextFromDocx:
+    """Tests de la méthode extract_text_from_docx."""
+
+    def test_extract_from_valid_docx(self):
+        """Test extraction depuis un DOCX valide."""
+        with open("tests/fixtures/sample_cv.docx", "rb") as f:
+            docx_content = f.read()
+
+        text = CVParser.extract_text_from_docx(docx_content)
+
+        # Vérifie qu'on a du texte
+        assert len(text) > 10
+
+    def test_extract_invalid_docx_raises_error(self):
+        """Test avec un DOCX invalide."""
+        invalid_docx = b"Not a DOCX file"
+
+        with pytest.raises(CVParserError):
+            CVParser.extract_text_from_docx(invalid_docx)

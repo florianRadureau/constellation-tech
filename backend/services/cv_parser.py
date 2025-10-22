@@ -135,3 +135,48 @@ class CVParser:
         except Exception as e:
             # Capture les autres erreurs
             raise CVParserError(f"Erreur lecture PDF: {str(e)}")
+
+    @staticmethod
+    def extract_text_from_docx(file_content: bytes) -> str:
+        """
+        Extrait le texte d'un DOCX.
+
+        Args:
+            file_content: Contenu binaire du fichier DOCX
+
+        Returns:
+            Texte extrait (nettoyé)
+
+        Raises:
+            CVParserError: Si l'extraction échoue
+        """
+        try:
+            with io.BytesIO(file_content) as docx_file:
+                doc = Document(docx_file)
+
+                text_parts = []
+
+                # Extraire des paragraphes
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        text_parts.append(paragraph.text)
+
+                # Extraire des tableaux
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                text_parts.append(cell.text)
+
+                # Vérifier qu'on a du texte
+                if not text_parts:
+                    raise CVParserError("Le document DOCX est vide")
+
+                # Joindre et nettoyer
+                full_text = "\n".join(text_parts)
+                return CVParser._clean_text(full_text)
+
+        except CVParserError:
+            raise
+        except Exception as e:
+            raise CVParserError(f"Erreur lors de la lecture du DOCX: {str(e)}")
