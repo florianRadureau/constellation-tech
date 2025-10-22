@@ -90,4 +90,48 @@ class CVParser:
 
         return text
 
+    @staticmethod
+    def extract_text_from_pdf(file_content: bytes) -> str:
+        """
+        Extrait le texte d'un PDF.
 
+        Args:
+            file_content: Contenu binaire du fichier PDF
+
+        Returns:
+            Texte extrait (nettoyé)
+
+        Raises:
+            CVParserError: Si l'extraction échoue
+        """
+        try:
+            # 1. BytesIO
+            with io.BytesIO(file_content) as pdf_file:
+                # 2. PdfReader
+                reader = PdfReader(pdf_file)
+
+            # 3. Vérifier qu'il y a des pages
+                if len(reader.pages) == 0:
+                    raise CVParserError("...")
+
+                # 4. Extraire le texte de chaque page
+                text_parts = []
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(page_text)
+
+                # 5. Vérifier qu'on a du texte
+                if not text_parts:
+                    raise CVParserError("Aucun texte extractible...")
+
+                # 6. Joindre et nettoyer
+                full_text = "\n".join(text_parts)
+                return CVParser._clean_text(full_text)
+
+        except CVParserError:
+            # Re-raise nos propres erreurs
+            raise
+        except Exception as e:
+            # Capture les autres erreurs
+            raise CVParserError(f"Erreur lecture PDF: {str(e)}")

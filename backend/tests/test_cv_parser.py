@@ -93,3 +93,26 @@ class TestCleanText:
         dirty = "\n\n  Texte  \n\n"
         expected = "Texte"
         assert CVParser._clean_text(dirty) == expected
+
+class TestExtractTextFromPdf:
+    """Tests de la méthode extract_text_from_pdf."""
+
+    def test_extract_from_valid_pdf(self):
+        """Test extraction depuis un PDF valide."""
+        # Charge le PDF de test
+        with open("tests/fixtures/sample_cv.pdf", "rb") as f:
+            pdf_content = f.read()
+
+        # Extrait le texte
+        text = CVParser.extract_text_from_pdf(pdf_content)
+
+        # Vérifie que le texte contient des éléments attendus
+        assert "Python" in text or "python" in text.lower()
+        assert len(text) > 10  # Au moins quelques caractères
+
+    def test_extract_corrupted_pdf_raises_error(self):
+        """Test avec un PDF corrompu."""
+        corrupted = b"This is not a PDF file"
+
+        with pytest.raises(CVParserError):
+            CVParser.extract_text_from_pdf(corrupted)
