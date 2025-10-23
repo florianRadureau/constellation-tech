@@ -1,9 +1,22 @@
 """
 Tests unitaires pour le service CVParser.
 """
+import io
+from docx import Document
 import pytest
 from services.cv_parser import CVParser
 from exceptions import CVParserError
+
+# Fixture pour DOCX avec du texte
+@pytest.fixture
+def sample_docx_bytes():
+    """DOCX avec du texte."""
+    doc = Document()
+    doc.add_paragraph("Python Angular FastAPI")
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.read()
 
 
 class TestValidateFile:
@@ -136,3 +149,47 @@ class TestExtractTextFromDocx:
 
         with pytest.raises(CVParserError):
             CVParser.extract_text_from_docx(invalid_docx)
+
+class TestExtractText:
+    """Tests de la méthode extract_text (orchestrateur)."""
+
+    def test_extract_from_pdf(self, sample_docx_bytes):
+        """Test qu'un PDF est routé vers extract_text_from_pdf."""
+        with open("tests/fixtures/sample_cv.pdf", "rb") as f:
+            pdf_content = f.read()
+
+        # Doit fonctionner sans erreur
+        text = CVParser.extract_text(pdf_content, "mon_cv.pdf")
+        assert len(text) > 10
+
+    def test_extract_from_docx(self, sample_docx_bytes):
+        """Test qu'un DOCX est routé vers extract_text_from_docx."""
+        text = CVParser.extract_text(sample_docx_bytes, "mon_cv.docx")
+        print(text)
+        assert len(text) > 10
+
+    def test_extract_validates_file_first(self):
+        """Test que validate_file est appelée."""
+        # Fichier trop gros
+        big_pdf = b"a" * (6 * 1024 * 1024)
+
+        with pytest.raises(CVParserError) as exc_info:
+            CVParser.extract_text(big_pdf, "gros.pdf")
+
+        # Doit échouer à la validation (pas à l'extraction)
+        assert "volumineux" in str(exc_info.value).lower()
+
+    def test_extract_unsupported_format(self):
+        """Test avec format non supporté."""
+        with pytest.raises(CVParserError) as exc_info:
+            CVParser.extract_text(b"content", "document.txt")
+
+        assert "supporté" in str(exc_info.value).lower()
+
+    def test_extract_case_insensitive_extension(self):
+        """Test que l'extension est case-insensitive."""
+        # Doit fonctionner avec .PDF, .Pdf, .DOCX, etc.
+        # (On ne teste pas l'extraction complète, juste le routing)
+        with pytest.raises(CVParserError):
+            # Fichier invalide mais extension reconnue
+            CVParser.extract_text(b"invalid", "cv.PDF")

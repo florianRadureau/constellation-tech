@@ -28,10 +28,41 @@ class CVParser:
             Texte extrait du CV
 
         Raises:
-            CVParserError: Si l'extraction échoue
+            CVParserError: Si l'extraction échoue ou l'extension n'est pas bonne
         """
-        # TODO: À implémenter
-        pass
+        try:
+            CVParser.validate_file(file_content, filename)
+        except CVParserError:
+            # Re-raise nos propres erreurs
+            raise
+
+        file_extension = CVParser.get_file_extension(filename)
+        if (file_extension == "pdf"):
+            return CVParser.extract_text_from_pdf(file_content)
+        elif (file_extension == "docx" or file_extension == "doc"):
+            return CVParser.extract_text_from_docx(file_content)
+
+
+    @staticmethod
+    def get_file_extension(filename: str) -> str:
+        """"
+        Extrait l'extension du fichier
+
+        Args:
+            filename : Nom du fichier
+
+        CVParserError: Si le nom du fichier n'est pas conforme
+
+        Returns:
+            Extension du fichier
+        """
+        try:
+            extension = filename.lower().split(".")[-1]
+        except Exception as e:
+            raise CVParserError(f"Le nom du fichier est incorrect : {str(e)}")
+        return extension
+
+
 
     @staticmethod
     def validate_file(file_content: bytes, filename: str) -> None:
@@ -46,7 +77,8 @@ class CVParser:
             CVParserError: Si la validation échoue
         """
         # Validation 1 : Extension
-        extension = filename.lower().split(".")[-1]
+        extension = CVParser.get_file_extension(filename)
+
         if extension not in CVParser.SUPPORTED_EXTENSIONS:
             raise CVParserError(
                 f"Format de fichier non supporté : .{extension}. "
@@ -180,3 +212,4 @@ class CVParser:
             raise
         except Exception as e:
             raise CVParserError(f"Erreur lors de la lecture du DOCX: {str(e)}")
+
