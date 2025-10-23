@@ -17,9 +17,17 @@ Transformez vos CVs en magnifiques visualisations constellation générées par 
 Titre: "Le Designer de l'Expérience"
 Technologies: 7 (Angular, Docker, Python, FastAPI, etc.)
 Temps de génération: ~12s
+Format: PNG 1024x1024, avec titre, labels et connexions
 ```
 
-![Exemple Constellation](constellation_result.png)
+**Exemple visuel :**
+- Fond nebula généré par Vertex AI Imagen
+- 7 étoiles brillantes détectées par OpenCV
+- Technologies mappées avec labels intelligents
+- Lignes de connexion entre étoiles
+- Watermark discret "constellation.tech"
+
+Pour voir un exemple, exécutez : `python test_full_pipeline.py` (script local)
 
 ---
 
