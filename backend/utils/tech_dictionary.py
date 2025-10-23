@@ -30,6 +30,9 @@ TECH_CATEGORIES = {
 
     "Backend": {
         "keywords": [
+            # Languages (← AJOUTE CETTE SECTION)
+            "python", "java", "go", "golang", "rust", "ruby", "php",
+            "c#", "csharp", "javascript", "typescript", "kotlin", "scala",
             # Python
             "fastapi", "django", "flask", "tornado", "pyramid", "bottle",
             "aiohttp", "sanic", "quart",
