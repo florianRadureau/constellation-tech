@@ -230,28 +230,257 @@ class StarDetector:
         b, g, r = avg_bgr
         return (int(r), int(g), int(b))
 
+    def _estimate_star_size(
+        self, gray: np.ndarray, x: int, y: int, radius: int = 25
+    ) -> int:
+        """
+        Estimate star size by counting bright pixels around center.
+
+        Args:
+            gray: Grayscale image (numpy array)
+            x, y: Star center coordinates
+            radius: Search radius in pixels
+
+        Returns:
+            Approximate size in pixels (number of bright pixels)
+        """
+        # Extract region around star
+        height, width = gray.shape
+        x1 = max(0, x - radius)
+        y1 = max(0, y - radius)
+        x2 = min(width, x + radius)
+        y2 = min(height, y + radius)
+
+        region = gray[y1:y2, x1:x2]
+
+        if region.size == 0:
+            return 0
+
+        # Count pixels above 80% of star brightness
+        star_brightness = gray[y, x]
+        threshold = star_brightness * 0.8
+        bright_pixels = int(np.sum(region >= threshold))
+
+        return bright_pixels
+
+    def detect_from_constellation_lines(
+        self, image: Image.Image
+    ) -> list[StarPosition]:
+        """
+        Detect constellation stars by analyzing connection lines.
+
+        Uses Canny edge detection + Hough Line Transform to find thin lines
+        connecting stars, then identifies bright stars at line endpoints.
+
+        More robust than brightness thresholding because:
+        - Uses Imagen's own constellation structure (the lines it drew)
+        - Color-independent (works with any nebula colors)
+        - Captures exactly the stars Imagen considers part of constellation
+
+        Algorithm:
+        1. Edge detection (Canny) to find thin lines
+        2. Hough Line Transform to extract line segments
+        3. Find bright stars at line endpoints
+        4. Spatial clustering to deduplicate nearby stars
+        5. Return constellation stars with full metadata
+
+        Args:
+            image: PIL Image from Imagen
+
+        Returns:
+            List of StarPosition objects for constellation stars
+
+        Example:
+            >>> stars = detector.detect_from_constellation_lines(image)
+            >>> print(f"Found {len(stars)} constellation stars")
+        """
+        import math
+
+        logger.info("Detecting stars via constellation line analysis...")
+
+        # Convert PIL to OpenCV
+        cv_image = self._pil_to_cv(image)
+        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+
+        # Enhance bright thin lines (reduce noise, keep edges)
+        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+
+        # Canny edge detection to find thin bright lines
+        edges = cv2.Canny(filtered, threshold1=50, threshold2=150)
+
+        # Dilate slightly to connect fragmented line segments
+        kernel = np.ones((3, 3), np.uint8)
+        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
+
+        # Hough Line Transform to detect line segments
+        lines = cv2.HoughLinesP(
+            edges_dilated,
+            rho=1,  # Distance resolution in pixels
+            theta=np.pi / 180,  # Angle resolution in radians
+            threshold=30,  # Minimum votes
+            minLineLength=40,  # Minimum line length in pixels
+            maxLineGap=10,  # Maximum gap between segments to treat as one line
+        )
+
+        if lines is None or len(lines) == 0:
+            logger.warning("No lines detected in image, falling back to brightness detection")
+            return self.detect(image)
+
+        logger.debug(f"Found {len(lines)} line segments")
+
+        # Extract all line endpoints
+        endpoints = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            endpoints.append((x1, y1))
+            endpoints.append((x2, y2))
+
+        logger.debug(f"Extracted {len(endpoints)} line endpoints")
+
+        # For each endpoint, search for a bright star nearby
+        star_candidates = []
+        search_radius = 30  # pixels
+
+        for ex, ey in endpoints:
+            # Extract region around endpoint
+            x1 = max(0, ex - search_radius)
+            y1 = max(0, ey - search_radius)
+            x2 = min(image.width, ex + search_radius)
+            y2 = min(image.height, ey + search_radius)
+
+            region = gray[y1:y2, x1:x2]
+
+            if region.size == 0:
+                continue
+
+            # Find brightest point in region
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(region)
+
+            # Check if bright enough to be a star
+            if max_val > 180:  # Bright threshold
+                # Convert to absolute coordinates
+                star_x = x1 + max_loc[0]
+                star_y = y1 + max_loc[1]
+
+                star_candidates.append(
+                    {"x": star_x, "y": star_y, "brightness": float(max_val)}
+                )
+
+        logger.debug(f"Found {len(star_candidates)} star candidates")
+
+        if len(star_candidates) == 0:
+            logger.warning("No bright stars found at line endpoints, falling back")
+            return self.detect(image)
+
+        # Spatial clustering to deduplicate stars that are very close
+        deduplicated_stars = []
+        used = set()
+
+        for i, candidate in enumerate(star_candidates):
+            if i in used:
+                continue
+
+            # Find all candidates within 30px (same star)
+            cluster = [candidate]
+            for j, other in enumerate(star_candidates):
+                if j <= i or j in used:
+                    continue
+
+                distance = math.hypot(
+                    candidate["x"] - other["x"], candidate["y"] - other["y"]
+                )
+
+                if distance < 30:
+                    cluster.append(other)
+                    used.add(j)
+
+            # Average position and max brightness for cluster
+            avg_x = int(np.mean([s["x"] for s in cluster]))
+            avg_y = int(np.mean([s["y"] for s in cluster]))
+            max_brightness = max(s["brightness"] for s in cluster)
+
+            deduplicated_stars.append(
+                {"x": avg_x, "y": avg_y, "brightness": max_brightness}
+            )
+
+        logger.debug(f"After deduplication: {len(deduplicated_stars)} unique stars")
+
+        # Convert to StarPosition objects with full metadata
+        stars: list[StarPosition] = []
+        for star_data in deduplicated_stars:
+            x, y = star_data["x"], star_data["y"]
+            brightness = star_data["brightness"]
+
+            # Get color at star position
+            color = self._get_color_at_point(cv_image, x, y)
+
+            # Estimate star size
+            size = self._estimate_star_size(gray, x, y)
+
+            stars.append(
+                StarPosition(
+                    x=x, y=y, brightness=brightness, color=color, size=size
+                )
+            )
+
+        # Sort by brightness (brightest first)
+        stars.sort(key=lambda s: s.brightness, reverse=True)
+
+        logger.info(
+            f"✓ Detected {len(stars)} constellation stars from line analysis"
+        )
+
+        # Log top 3 for debugging
+        for i, star in enumerate(stars[:3]):
+            logger.debug(f"  Star {i+1}: {star}")
+
+        return stars
+
     def detect_with_adjustable_threshold(
         self, image: Image.Image, target_count: int
     ) -> list[StarPosition]:
         """
-        Detect stars with automatic threshold adjustment.
+        Detect stars with automatic method selection.
 
-        If initial detection doesn't find enough stars, gradually lowers
-        the brightness threshold until target_count is reached.
+        Primary method: Line-based detection (analyzes constellation lines)
+        Fallback method: Brightness thresholding with adjustment
+
+        The line-based method is more robust because it uses the actual
+        constellation structure from Imagen (the connection lines), which
+        identifies exactly which stars are part of the constellation.
 
         Args:
             image: PIL Image
             target_count: Desired number of stars
 
         Returns:
-            List of StarPosition objects (may be less than target_count)
+            List of StarPosition objects
 
         Example:
             >>> stars = detector.detect_with_adjustable_threshold(image, target_count=10)
         """
-        logger.info(f"Detecting {target_count} stars with adjustable threshold...")
+        logger.info(f"Detecting {target_count} stars...")
 
-        # Try initial detection
+        # Try line-based detection first (more robust)
+        logger.info("Attempting line-based constellation detection...")
+        stars = self.detect_from_constellation_lines(image)
+
+        # If we got a reasonable number of stars, use them
+        if len(stars) >= target_count - 2:  # Allow -2 tolerance
+            logger.info(
+                f"✓ Line-based detection successful: {len(stars)} stars "
+                f"(target was {target_count})"
+            )
+            # Don't limit to target_count - use all detected constellation stars
+            return stars
+
+        # Fallback to brightness-based detection
+        logger.warning(
+            f"Line-based detection found only {len(stars)} stars, "
+            f"falling back to brightness detection"
+        )
+
+        # Try initial brightness detection
         stars = self.detect(image)
 
         if len(stars) >= target_count:

@@ -37,19 +37,6 @@ class TextOverlayService:
     STAR_INFLUENCE_RADIUS = 150  # Radius in which other stars affect placement (px)
     NUM_RADIAL_ATTEMPTS = 8  # Number of radial positions to try around optimal angle
 
-    # Premium design colors by category
-    CATEGORY_COLORS = {
-        "Frontend": (64, 156, 255),  # Bright blue
-        "Backend": (138, 43, 226),  # Purple
-        "Database": (255, 140, 0),  # Orange
-        "DevOps": (34, 197, 94),  # Green
-        "AI_ML": (236, 72, 153),  # Pink
-        "Mobile": (59, 130, 246),  # Sky blue
-        "Testing": (250, 204, 21),  # Yellow
-        "Cloud": (96, 165, 250),  # Light blue
-        "Other": (156, 163, 175),  # Gray
-    }
-
     def __init__(self, font_dir: Path | None = None) -> None:
         """
         Initialize text overlay service.
@@ -74,7 +61,7 @@ class TextOverlayService:
 
             label_font_path = self.font_dir / "OpenSans-Regular.ttf"
             if label_font_path.exists():
-                self.label_font = ImageFont.truetype(str(label_font_path), 16)
+                self.label_font = ImageFont.truetype(str(label_font_path), 18)
             else:
                 raise FileNotFoundError
 
@@ -89,10 +76,28 @@ class TextOverlayService:
                 self.title_font = ImageFont.truetype(
                     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48
                 )
-                self.label_font = ImageFont.truetype(
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16
-                )
-                logger.info("DejaVu fonts loaded")
+
+                # Try Space Mono for labels (spatial aesthetic)
+                try:
+                    self.label_font = ImageFont.truetype(
+                        "/usr/share/fonts/truetype/space-mono/SpaceMono-Regular.ttf", 18
+                    )
+                    logger.info("Space Mono font loaded for labels (18px)")
+                except OSError:
+                    # Fallback to DejaVu Mono
+                    try:
+                        self.label_font = ImageFont.truetype(
+                            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 18
+                        )
+                        logger.info("DejaVu Mono font loaded for labels (18px)")
+                    except OSError:
+                        # Last resort: regular DejaVu
+                        self.label_font = ImageFont.truetype(
+                            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18
+                        )
+                        logger.info("DejaVu Sans font loaded for labels (18px)")
+
+                logger.info("System fonts loaded")
             except OSError:
                 # Last resort: default font
                 self.title_font = ImageFont.load_default()
@@ -163,10 +168,10 @@ class TextOverlayService:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        # Try to load larger font for title
+        # Try to load appropriately-sized font for title (34px for balance)
         try:
             title_font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 56
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34
             )
         except OSError:
             # Fallback to current title font
@@ -189,11 +194,10 @@ class TextOverlayService:
         glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
         glow_draw = ImageDraw.Draw(glow_layer)
 
-        # Multiple layers of glow for stronger effect
+        # Multiple layers of glow (subtle for elegance)
         glow_colors = [
-            ((100, 200, 255, 40), 8),  # Outer cyan glow
-            ((150, 220, 255, 60), 5),  # Mid glow
-            ((200, 240, 255, 80), 3),  # Inner glow
+            ((100, 200, 255, 20), 4),  # Outer cyan glow
+            ((150, 220, 255, 30), 2),  # Inner glow
         ]
 
         for color, offset in glow_colors:
@@ -303,20 +307,19 @@ class TextOverlayService:
         category: str,
     ) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
         """
-        Draw premium label with spatial design.
+        Draw minimal elegant label.
 
         Features:
-        - Colored border based on category
-        - Subtle glow effect around border
-        - Rounded rectangle background
-        - Text with shadow
-        - Semi-transparent modern look
+        - Simple rounded rectangle background (dark gray)
+        - No colored borders (too amateur)
+        - Subtle text shadow
+        - Clean Space Mono typography
 
         Args:
             image: Base image
             x, y: Label position (top-left)
             text: Label text
-            category: Technology category (for color)
+            category: Technology category (unused, kept for compatibility)
 
         Returns:
             Tuple of (modified image, label bounding box)
@@ -325,13 +328,10 @@ class TextOverlayService:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        # Get category color
-        border_color = self.CATEGORY_COLORS.get(category, self.CATEGORY_COLORS["Other"])
-
         # Calculate text dimensions
         draw = ImageDraw.Draw(image)
         bbox = draw.textbbox((x, y), text, font=self.label_font)
-        padding = 8  # More padding for premium look
+        padding = 8  # Generous padding
         corner_radius = 6
 
         label_box = (
@@ -341,66 +341,24 @@ class TextOverlayService:
             bbox[3] + padding,
         )
 
-        # Create overlay for all effects
+        # Create overlay
         overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
         overlay_draw = ImageDraw.Draw(overlay)
 
-        # 1. Draw glow effect (larger rounded rect with blur)
-        glow_padding = 4
-        glow_box = (
-            label_box[0] - glow_padding,
-            label_box[1] - glow_padding,
-            label_box[2] + glow_padding,
-            label_box[3] + glow_padding,
-        )
-
-        # Create glow layer
-        glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        glow_draw = ImageDraw.Draw(glow_layer)
-        glow_draw.rounded_rectangle(
-            glow_box, radius=corner_radius + 2, fill=(*border_color, 60)
-        )
-        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=3))
-
-        # Composite glow
-        overlay = Image.alpha_composite(overlay, glow_layer)
-
-        # 2. Draw background (dark with gradient effect using multiple layers)
-        overlay_draw = ImageDraw.Draw(overlay)
+        # 1. Simple rounded background (dark, semi-transparent)
         overlay_draw.rounded_rectangle(
-            label_box, radius=corner_radius, fill=(15, 15, 25, 200)
+            label_box, radius=corner_radius, fill=(20, 20, 30, 180)  # Dark gray, 70% opacity
         )
 
-        # 3. Draw colored border
-        # Draw slightly smaller rect to create border effect
-        inner_box = (
-            label_box[0] + 2,
-            label_box[1] + 2,
-            label_box[2] - 2,
-            label_box[3] - 2,
-        )
-        overlay_draw.rounded_rectangle(
-            label_box, radius=corner_radius, outline=(*border_color, 220), width=2
-        )
-
-        # 4. Draw text with subtle shadow
-        text_x = x
-        text_y = y
-
-        # Shadow
+        # 2. Text shadow (subtle)
         overlay_draw.text(
-            (text_x + 1, text_y + 1),
-            text,
-            font=self.label_font,
-            fill=(0, 0, 0, 180),
+            (x + 1, y + 1), text, font=self.label_font, fill=(0, 0, 0, 150)
         )
 
-        # Main text (white with high opacity)
-        overlay_draw.text(
-            (text_x, text_y), text, font=self.label_font, fill=(255, 255, 255, 255)
-        )
+        # 3. Main text (white)
+        overlay_draw.text((x, y), text, font=self.label_font, fill=(255, 255, 255, 255))
 
-        # Composite final overlay
+        # Composite
         result = Image.alpha_composite(image, overlay)
 
         return result, label_box
