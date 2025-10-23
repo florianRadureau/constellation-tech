@@ -1,16 +1,19 @@
 """
 Text overlay service for constellation images.
 
-Adds title, technology labels, and watermark with collision avoidance.
+Adds title, technology labels, and watermark with smart collision avoidance.
+Uses intelligent angle calculation to place labels in clear zones away from other stars.
 """
 
 import logging
+import math
 from pathlib import Path
 from typing import Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config import settings
+from services.star_detector import StarPosition
 from services.technology_mapper import StarTechMapping
 
 logger = logging.getLogger(__name__)
@@ -20,20 +23,32 @@ class TextOverlayService:
     """
     Add elegant text overlays to constellation images.
 
-    Handles title, technology labels (with collision avoidance), and watermark.
+    Handles title, technology labels (with smart collision avoidance), and watermark.
+    Uses intelligent angle calculation to place labels in zones away from other stars.
 
     Example:
         >>> service = TextOverlayService()
         >>> final_image = service.compose(image, mappings, title)
     """
 
-    # Label positioning offsets (relative to star)
-    LABEL_OFFSETS = [
-        (30, 0),  # Right
-        (-30, 0),  # Left
-        (0, -30),  # Top
-        (0, 30),  # Bottom
-    ]
+    # Smart positioning constants
+    MIN_DISTANCE_FROM_STAR = 60  # Minimum distance from star center to label (px)
+    MIN_DISTANCE_FROM_OTHER_STARS = 40  # Minimum distance to other stars (px)
+    STAR_INFLUENCE_RADIUS = 150  # Radius in which other stars affect placement (px)
+    NUM_RADIAL_ATTEMPTS = 8  # Number of radial positions to try around optimal angle
+
+    # Premium design colors by category
+    CATEGORY_COLORS = {
+        "Frontend": (64, 156, 255),  # Bright blue
+        "Backend": (138, 43, 226),  # Purple
+        "Database": (255, 140, 0),  # Orange
+        "DevOps": (34, 197, 94),  # Green
+        "AI_ML": (236, 72, 153),  # Pink
+        "Mobile": (59, 130, 246),  # Sky blue
+        "Testing": (250, 204, 21),  # Yellow
+        "Cloud": (96, 165, 250),  # Light blue
+        "Other": (156, 163, 175),  # Gray
+    }
 
     def __init__(self, font_dir: Path | None = None) -> None:
         """
@@ -110,7 +125,7 @@ class TextOverlayService:
             Image with text overlays
 
         Example:
-            >>> final = service.compose(image, mappings, "L'Architecte Frontend")
+            >>> final = service.compose(image, mappings, "La Constellation du Pixel Parfait")
         """
         # Work on a copy
         result = image.copy()
@@ -118,7 +133,7 @@ class TextOverlayService:
         # Add title
         result = self.add_title(result, title)
 
-        # Add technology labels
+        # Add technology labels with smart positioning
         result = self.add_tech_labels(result, mappings)
 
         # Add watermark
@@ -129,7 +144,13 @@ class TextOverlayService:
 
     def add_title(self, image: Image.Image, title: str) -> Image.Image:
         """
-        Add title at top center with shadow.
+        Add title at top center with premium glow effect.
+
+        Features:
+        - Large elegant font (56-60px)
+        - Cyan/white glow effect
+        - Text stroke for depth
+        - Centered positioning
 
         Args:
             image: Base image
@@ -138,31 +159,87 @@ class TextOverlayService:
         Returns:
             Image with title
         """
-        draw = ImageDraw.Draw(image)
+        # Convert to RGBA if needed
+        if image.mode != "RGBA":
+            image = image.convert("RGBA")
 
-        # Get text bbox
-        bbox = draw.textbbox((0, 0), title, font=self.title_font)
+        # Try to load larger font for title
+        try:
+            title_font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 56
+            )
+        except OSError:
+            # Fallback to current title font
+            title_font = self.title_font
+
+        # Create temporary draw to measure text
+        temp_draw = ImageDraw.Draw(image)
+        bbox = temp_draw.textbbox((0, 0), title, font=title_font)
         text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
 
-        # Center horizontally, 50px from top
+        # Center horizontally, position lower (80px from top)
         x = (image.width - text_width) // 2
-        y = 50
+        y = 60
 
-        # Draw shadow (offset)
-        shadow_color = (0, 0, 0, 180)
-        draw.text((x + 2, y + 2), title, font=self.title_font, fill=shadow_color)
+        # Create overlay for effects
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
 
-        # Draw title (white)
-        draw.text((x, y), title, font=self.title_font, fill=(255, 255, 255, 255))
+        # 1. Draw cyan glow (outer layer)
+        glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow_layer)
 
-        logger.debug(f"Added title: {title}")
-        return image
+        # Multiple layers of glow for stronger effect
+        glow_colors = [
+            ((100, 200, 255, 40), 8),  # Outer cyan glow
+            ((150, 220, 255, 60), 5),  # Mid glow
+            ((200, 240, 255, 80), 3),  # Inner glow
+        ]
+
+        for color, offset in glow_colors:
+            for dx in range(-offset, offset + 1):
+                for dy in range(-offset, offset + 1):
+                    if dx * dx + dy * dy <= offset * offset:
+                        glow_draw.text(
+                            (x + dx, y + dy),
+                            title,
+                            font=title_font,
+                            fill=color,
+                        )
+
+        # Apply blur to glow
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=4))
+        overlay = Image.alpha_composite(overlay, glow_layer)
+
+        # 2. Draw text stroke (outline)
+        overlay_draw = ImageDraw.Draw(overlay)
+        stroke_offset = 2
+        for dx in range(-stroke_offset, stroke_offset + 1):
+            for dy in range(-stroke_offset, stroke_offset + 1):
+                if dx != 0 or dy != 0:
+                    overlay_draw.text(
+                        (x + dx, y + dy),
+                        title,
+                        font=title_font,
+                        fill=(0, 0, 0, 200),
+                    )
+
+        # 3. Draw main title text (bright white)
+        overlay_draw.text((x, y), title, font=title_font, fill=(255, 255, 255, 255))
+
+        # Composite all effects
+        result = Image.alpha_composite(image, overlay)
+
+        logger.debug(f"Added title with glow: {title}")
+        return result
 
     def add_tech_labels(
         self, image: Image.Image, mappings: list[StarTechMapping]
     ) -> Image.Image:
         """
-        Add technology labels with collision avoidance.
+        Add technology labels with smart collision avoidance.
+
+        Uses intelligent angle calculation to place labels in zones away from other stars.
 
         Args:
             image: Base image
@@ -173,53 +250,160 @@ class TextOverlayService:
         """
         draw = ImageDraw.Draw(image)
 
-        # Track occupied regions
+        # Extract all star positions for smart placement
+        all_star_positions = [mapping.star for mapping in mappings]
+
+        # Track occupied regions by labels
         occupied_boxes: list[Tuple[int, int, int, int]] = []
 
         for mapping in mappings:
             star = mapping.star
             tech_name = mapping.tech.name
 
-            # Find best position (no collision)
+            # Find best position using smart angle calculation
             position = self._find_label_position(
-                draw, star.x, star.y, tech_name, occupied_boxes, image.size
+                draw,
+                star.x,
+                star.y,
+                tech_name,
+                occupied_boxes,
+                image.size,
+                all_star_positions,
             )
 
             if position is None:
-                logger.warning(f"Could not place label for {tech_name}")
+                logger.warning(
+                    f"Could not place label for {tech_name} at star ({star.x}, {star.y})"
+                )
                 continue
 
             x, y = position
 
-            # Draw semi-transparent background
-            bbox = draw.textbbox((x, y), tech_name, font=self.label_font)
-            padding = 4
-            bg_box = (
-                bbox[0] - padding,
-                bbox[1] - padding,
-                bbox[2] + padding,
-                bbox[3] + padding,
+            # Draw premium label with glow effect and colored border
+            category = mapping.tech.category
+            image, label_box = self._draw_premium_label(
+                image, x, y, tech_name, category
             )
 
-            # Create overlay for transparency
-            overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-            overlay_draw = ImageDraw.Draw(overlay)
-
-            # Background rectangle
-            overlay_draw.rectangle(bg_box, fill=(0, 0, 0, 150))
-
-            # Composite overlay
-            image = Image.alpha_composite(image.convert("RGBA"), overlay)
+            # Update draw object after image modification
             draw = ImageDraw.Draw(image)
 
-            # Draw text (white)
-            draw.text((x, y), tech_name, font=self.label_font, fill=(255, 255, 255))
-
             # Mark as occupied
-            occupied_boxes.append(bg_box)
+            occupied_boxes.append(label_box)
 
         logger.debug(f"Added {len(mappings)} technology labels")
         return image
+
+    def _draw_premium_label(
+        self,
+        image: Image.Image,
+        x: int,
+        y: int,
+        text: str,
+        category: str,
+    ) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
+        """
+        Draw premium label with spatial design.
+
+        Features:
+        - Colored border based on category
+        - Subtle glow effect around border
+        - Rounded rectangle background
+        - Text with shadow
+        - Semi-transparent modern look
+
+        Args:
+            image: Base image
+            x, y: Label position (top-left)
+            text: Label text
+            category: Technology category (for color)
+
+        Returns:
+            Tuple of (modified image, label bounding box)
+        """
+        # Convert to RGBA if needed
+        if image.mode != "RGBA":
+            image = image.convert("RGBA")
+
+        # Get category color
+        border_color = self.CATEGORY_COLORS.get(category, self.CATEGORY_COLORS["Other"])
+
+        # Calculate text dimensions
+        draw = ImageDraw.Draw(image)
+        bbox = draw.textbbox((x, y), text, font=self.label_font)
+        padding = 8  # More padding for premium look
+        corner_radius = 6
+
+        label_box = (
+            bbox[0] - padding,
+            bbox[1] - padding,
+            bbox[2] + padding,
+            bbox[3] + padding,
+        )
+
+        # Create overlay for all effects
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+
+        # 1. Draw glow effect (larger rounded rect with blur)
+        glow_padding = 4
+        glow_box = (
+            label_box[0] - glow_padding,
+            label_box[1] - glow_padding,
+            label_box[2] + glow_padding,
+            label_box[3] + glow_padding,
+        )
+
+        # Create glow layer
+        glow_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow_layer)
+        glow_draw.rounded_rectangle(
+            glow_box, radius=corner_radius + 2, fill=(*border_color, 60)
+        )
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=3))
+
+        # Composite glow
+        overlay = Image.alpha_composite(overlay, glow_layer)
+
+        # 2. Draw background (dark with gradient effect using multiple layers)
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.rounded_rectangle(
+            label_box, radius=corner_radius, fill=(15, 15, 25, 200)
+        )
+
+        # 3. Draw colored border
+        # Draw slightly smaller rect to create border effect
+        inner_box = (
+            label_box[0] + 2,
+            label_box[1] + 2,
+            label_box[2] - 2,
+            label_box[3] - 2,
+        )
+        overlay_draw.rounded_rectangle(
+            label_box, radius=corner_radius, outline=(*border_color, 220), width=2
+        )
+
+        # 4. Draw text with subtle shadow
+        text_x = x
+        text_y = y
+
+        # Shadow
+        overlay_draw.text(
+            (text_x + 1, text_y + 1),
+            text,
+            font=self.label_font,
+            fill=(0, 0, 0, 180),
+        )
+
+        # Main text (white with high opacity)
+        overlay_draw.text(
+            (text_x, text_y), text, font=self.label_font, fill=(255, 255, 255, 255)
+        )
+
+        # Composite final overlay
+        result = Image.alpha_composite(image, overlay)
+
+        return result, label_box
 
     def _find_label_position(
         self,
@@ -229,11 +413,16 @@ class TextOverlayService:
         text: str,
         occupied_boxes: list[Tuple[int, int, int, int]],
         image_size: Tuple[int, int],
+        all_stars: list[StarPosition],
     ) -> Tuple[int, int] | None:
         """
-        Find best position for label avoiding collisions.
+        Find best position for label using smart angle calculation.
 
-        Tries: right, left, top, bottom
+        Algorithm:
+        1. Calculate optimal angle (clearest zone away from other stars)
+        2. Generate 8 radial positions around optimal angle
+        3. Try each position, checking collisions with labels AND other stars
+        4. Return first valid position or None
 
         Args:
             draw: ImageDraw object
@@ -241,15 +430,23 @@ class TextOverlayService:
             text: Label text
             occupied_boxes: List of occupied bounding boxes
             image_size: Image dimensions
+            all_stars: All star positions in constellation
 
         Returns:
             (x, y) position or None if no valid position found
         """
-        # Try each offset
-        for offset_x, offset_y in self.LABEL_OFFSETS:
-            x = star_x + offset_x
-            y = star_y + offset_y
+        # Calculate optimal angle (away from other stars)
+        optimal_angle = self._calculate_smart_angle(
+            star_x, star_y, all_stars
+        )
 
+        # Generate radial positions around optimal angle
+        candidate_positions = self._generate_radial_positions(
+            star_x, star_y, optimal_angle, self.NUM_RADIAL_ATTEMPTS
+        )
+
+        # Try each candidate position
+        for x, y in candidate_positions:
             # Get text bounding box
             bbox = draw.textbbox((x, y), text, font=self.label_font)
             padding = 4
@@ -269,15 +466,177 @@ class TextOverlayService:
             ):
                 continue
 
-            # Check collision with occupied boxes
+            # Check collision with occupied label boxes
             if self._boxes_overlap(test_box, occupied_boxes):
                 continue
 
+            # Check proximity to other stars (avoid placing between stars)
+            if self._too_close_to_other_stars(
+                test_box, star_x, star_y, all_stars
+            ):
+                continue
+
             # Found valid position
+            logger.debug(
+                f"Label placed at angle {math.degrees(optimal_angle):.0f}° "
+                f"from star ({star_x}, {star_y})"
+            )
             return (x, y)
 
         # No valid position found
         return None
+
+    def _calculate_smart_angle(
+        self, star_x: int, star_y: int, all_stars: list[StarPosition]
+    ) -> float:
+        """
+        Calculate optimal angle for label placement.
+
+        Finds the angle (direction) with the least density of nearby stars,
+        creating a "clear zone" for the label.
+
+        Args:
+            star_x, star_y: Star coordinates
+            all_stars: All star positions in constellation
+
+        Returns:
+            Optimal angle in radians (0 = right, π/2 = down, π = left, 3π/2 = up)
+        """
+        # Collect angles to nearby stars (within influence radius)
+        nearby_angles: list[float] = []
+
+        for other_star in all_stars:
+            # Skip self
+            if other_star.x == star_x and other_star.y == star_y:
+                continue
+
+            # Calculate distance
+            dx = other_star.x - star_x
+            dy = other_star.y - star_y
+            distance = math.hypot(dx, dy)
+
+            # Only consider stars within influence radius
+            if distance < self.STAR_INFLUENCE_RADIUS:
+                angle = math.atan2(dy, dx)  # Angle from current star to other star
+                nearby_angles.append(angle)
+
+        # If no nearby stars, default to right (0 radians)
+        if not nearby_angles:
+            return 0.0
+
+        # Sort angles
+        nearby_angles.sort()
+
+        # Find largest gap between consecutive angles
+        max_gap = 0.0
+        optimal_angle = 0.0
+
+        for i in range(len(nearby_angles)):
+            # Calculate gap between this angle and next (wrapping around)
+            current = nearby_angles[i]
+            next_angle = nearby_angles[(i + 1) % len(nearby_angles)]
+
+            # Handle wraparound from π to -π
+            if i == len(nearby_angles) - 1:
+                gap = (2 * math.pi - current) + (next_angle + math.pi)
+            else:
+                gap = next_angle - current
+
+            if gap > max_gap:
+                max_gap = gap
+                # Place label in middle of gap
+                optimal_angle = current + gap / 2
+
+        # Normalize to [0, 2π)
+        optimal_angle = optimal_angle % (2 * math.pi)
+
+        logger.debug(
+            f"Optimal angle: {math.degrees(optimal_angle):.0f}° "
+            f"(gap: {math.degrees(max_gap):.0f}°, nearby stars: {len(nearby_angles)})"
+        )
+
+        return optimal_angle
+
+    def _generate_radial_positions(
+        self, star_x: int, star_y: int, center_angle: float, num_positions: int
+    ) -> list[Tuple[int, int]]:
+        """
+        Generate radial positions around a center angle.
+
+        Creates positions at MIN_DISTANCE_FROM_STAR, spreading ±45° around center angle.
+
+        Args:
+            star_x, star_y: Star coordinates
+            center_angle: Center angle in radians
+            num_positions: Number of positions to generate
+
+        Returns:
+            List of (x, y) positions
+        """
+        positions: list[Tuple[int, int]] = []
+
+        # Generate positions spreading ±45° around center angle
+        angle_spread = math.pi / 4  # 45 degrees in radians
+
+        for i in range(num_positions):
+            # Distribute angles evenly in ±45° range
+            if num_positions == 1:
+                angle_offset = 0
+            else:
+                angle_offset = (i / (num_positions - 1) - 0.5) * 2 * angle_spread
+
+            angle = center_angle + angle_offset
+
+            # Calculate position at MIN_DISTANCE_FROM_STAR
+            x = star_x + int(self.MIN_DISTANCE_FROM_STAR * math.cos(angle))
+            y = star_y + int(self.MIN_DISTANCE_FROM_STAR * math.sin(angle))
+
+            positions.append((x, y))
+
+        return positions
+
+    def _too_close_to_other_stars(
+        self,
+        label_box: Tuple[int, int, int, int],
+        current_star_x: int,
+        current_star_y: int,
+        all_stars: list[StarPosition],
+    ) -> bool:
+        """
+        Check if label box is too close to other stars.
+
+        Prevents labels from being placed between or near other stars.
+
+        Args:
+            label_box: Label bounding box (x1, y1, x2, y2)
+            current_star_x, current_star_y: Current star coordinates (to exclude)
+            all_stars: All star positions
+
+        Returns:
+            True if label is too close to another star
+        """
+        # Calculate label center
+        label_center_x = (label_box[0] + label_box[2]) / 2
+        label_center_y = (label_box[1] + label_box[3]) / 2
+
+        for star in all_stars:
+            # Skip current star
+            if star.x == current_star_x and star.y == current_star_y:
+                continue
+
+            # Calculate distance from label center to other star
+            distance = math.hypot(
+                star.x - label_center_x, star.y - label_center_y
+            )
+
+            if distance < self.MIN_DISTANCE_FROM_OTHER_STARS:
+                logger.debug(
+                    f"Label too close to star at ({star.x}, {star.y}): "
+                    f"distance={distance:.1f}px < {self.MIN_DISTANCE_FROM_OTHER_STARS}px"
+                )
+                return True
+
+        return False
 
     def _boxes_overlap(
         self, box: Tuple[int, int, int, int], boxes: list[Tuple[int, int, int, int]]

@@ -1,7 +1,8 @@
 """
 Title generation service for constellation visualizations.
 
-Generates poetic, profile-specific titles based on dominant technology category.
+Generates evocative invented constellation names based on dominant technology category.
+Titles use spatial metaphors (nebulas, forges, sanctuaries) for immersive experience.
 """
 
 import copy
@@ -23,71 +24,76 @@ class TitleGenerator:
         >>> generator = TitleGenerator()
         >>> stats = {"dominant_category": "Frontend"}
         >>> title = generator.generate(stats)
-        >>> print(title)  # "L'Architecte des Interfaces"
+        >>> print(title)  # "La Constellation du Pixel Parfait"
     """
 
     METAPHORS: ClassVar[Dict[str, list[str]]] = {
         "Frontend": [
-            "L'Architecte des Interfaces",
-            "Le Sculpteur Visuel",
-            "Le Designer de l'Expérience",
-            "L'Artiste du Frontend",
-            "Le Créateur d'Interfaces Élégantes",
+            "La Constellation du Pixel Parfait",
+            "L'Étoile d'Argent des Interfaces",
+            "La Nebula de l'Expérience Visuelle",
+            "Les Forges Lumineuses du Frontend",
+            "Le Sanctuaire des Écrans Enchantés",
         ],
         "Backend": [
-            "Le Bâtisseur de Systèmes",
-            "L'Architecte Invisible",
-            "L'Ingénieur des Fondations",
-            "Le Maître des Serveurs",
-            "L'Orchestrateur Backend",
+            "Les Forges d'Orion Backend",
+            "La Nebula des Architectures Invisibles",
+            "Le Gardien de la Constellation Serveur",
+            "L'Anneau Stellaire des API",
+            "Les Piliers Cosmiques du Code",
         ],
         "Database": [
-            "Le Gardien des Données",
-            "L'Architecte des Structures",
-            "Le Maître des Requêtes",
-            "L'Organisateur de l'Information",
+            "Le Sanctuaire des Données Éternelles",
+            "La Constellation des Schémas Sacrés",
+            "Les Coffres Stellaires de l'Information",
+            "La Nebula des Requêtes Infinies",
+            "Le Gardien de la Voie Lactée des Données",
         ],
         "DevOps": [
-            "Le Gardien de l'Infrastructure",
-            "L'Automaticien des Déploiements",
-            "L'Architecte Cloud",
-            "Le Maître de la Pipeline",
-            "L'Ingénieur de la Fiabilité",
+            "La Chaîne Stellaire DevOps",
+            "Le Gardien des Voies Cosmiques",
+            "La Constellation du Déploiement Continu",
+            "Les Sentinelles de l'Infrastructure",
+            "L'Anneau des Pipelines Automatiques",
         ],
         "AI_ML": [
-            "Le Dompteur d'Algorithmes",
-            "L'Explorateur de Données",
-            "Le Visionnaire Analytique",
-            "L'Architecte de l'Intelligence",
-            "Le Sculpteur de Modèles",
+            "La Nebula de l'Intelligence Artificielle",
+            "Les Forges d'Algorithmes Quantiques",
+            "La Constellation des Modèles Prédictifs",
+            "Le Sanctuaire de l'Apprentissage Machine",
+            "Les Éclaireurs de la Data Science",
         ],
         "Mobile": [
-            "L'Artisan des Applications Mobiles",
-            "Le Créateur d'Expériences Nomades",
-            "L'Architecte Mobile",
-            "Le Designer d'Interfaces Tactiles",
+            "La Constellation des Interfaces Nomades",
+            "L'Étoile Tactile du Mobile",
+            "Les Navigateurs de l'Espace Portable",
+            "La Nebula des Applications Mobiles",
+            "Le Sanctuaire des Expériences Mobiles",
         ],
         "Testing": [
-            "Le Gardien de la Qualité",
-            "L'Architecte des Tests",
-            "Le Maître de la Fiabilité",
-            "L'Ingénieur QA",
+            "Le Gardien de la Qualité Stellaire",
+            "La Constellation des Tests Infaillibles",
+            "Les Sentinelles de la Fiabilité",
+            "L'Anneau de Validation Continue",
+            "Les Éclaireurs de la Qualité Code",
         ],
         "Cloud": [
-            "L'Architecte Cloud",
-            "Le Maître des Nuages",
-            "L'Ingénieur de l'Échelle",
-            "L'Orchestrateur d'Infrastructure",
+            "La Nebula des Nuages Infinis",
+            "Les Maîtres de l'Infrastructure Céleste",
+            "La Constellation de l'Échelle Cosmique",
+            "Les Gardiens de la Voûte Cloud",
+            "L'Anneau des Services Distribués",
         ],
         "Other": [
-            "Le Créateur Technologique",
-            "L'Innovateur Numérique",
-            "L'Ingénieur Polyvalent",
-            "L'Architecte de Solutions",
+            "La Constellation du Code Universel",
+            "Les Forges de l'Innovation Numérique",
+            "La Nebula des Solutions Hybrides",
+            "Le Sanctuaire Technologique",
+            "Les Navigateurs du Cosmos Digital",
         ],
     }
 
-    FALLBACK_TITLE = "Le Créateur Technologique"
+    FALLBACK_TITLE = "La Constellation du Code Universel"
 
     def __init__(self, seed: int | None = None) -> None:
         """

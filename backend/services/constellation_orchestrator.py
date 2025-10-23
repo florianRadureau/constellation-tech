@@ -138,9 +138,19 @@ class ConstellationOrchestrator:
 
             # Step 4: Generate prompt
             logger.info("[4/10] Generating prompt...")
-            tech_count = min(len(technologies), 15)  # Limit for Imagen
-            prompt = self.prompt_generator.generate_from_stats(stats, tech_count)
-            logger.info(f"✓ Prompt generated ({tech_count} stars)")
+            # IMPORTANT: Always have MORE technologies than stars
+            # This ensures every star can be labeled without orphan stars
+            # Strategy: Request 70-80% of tech count as stars (with constraints)
+            total_techs = len(technologies)
+            star_count = max(3, min(total_techs - 2, 12))  # Min 3, max 12, always -2 from techs
+
+            logger.info(
+                f"Planning constellation: {total_techs} technologies → {star_count} stars "
+                f"(surplus: {total_techs - star_count} techs available)"
+            )
+
+            prompt = self.prompt_generator.generate_from_stats(stats, star_count)
+            logger.info(f"✓ Prompt generated ({star_count} stars requested)")
 
             # Step 5: Generate image with Vertex AI
             logger.info("[5/10] Generating constellation image (Vertex AI)...")
@@ -151,9 +161,9 @@ class ConstellationOrchestrator:
             # Step 6: Detect stars
             logger.info("[6/10] Detecting stars...")
             stars = self.star_detector.detect_with_adjustable_threshold(
-                raw_image, target_count=tech_count
+                raw_image, target_count=star_count
             )
-            logger.info(f"✓ Detected {len(stars)} stars")
+            logger.info(f"✓ Detected {len(stars)} stars (target was {star_count})")
 
             # Step 7: Map stars to technologies
             logger.info("[7/10] Mapping stars to technologies...")
