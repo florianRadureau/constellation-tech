@@ -58,3 +58,17 @@ uvloop==0.22.1
 watchfiles==1.1.1
 websockets==15.0.1
 wheel==0.45.1
+
+# Code Quality Tools
+black==24.1.1
+pylint==3.0.3
+mypy==1.8.0
+pre-commit==3.6.0
+isort==5.13.2
+bandit==1.7.6
+types-requests==2.31.0.20240125
+
+# Additional dependencies for services
+httpx==0.26.0
+aiofiles==23.2.1
+pydantic-settings==2.1.0
