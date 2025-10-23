@@ -125,9 +125,10 @@ class ConstellationOrchestrator:
             analysis = self.tech_analyzer.analyze(text)
             technologies = analysis["technologies"]
             stats = analysis["stats"]
+            total_techs = analysis.get("total_techs_found", len(technologies))
             logger.info(
-                f"✓ Detected {stats['total_techs_found']} technologies "
-                f"(dominant: {stats['dominant_category']})"
+                f"✓ Detected {total_techs} technologies "
+                f"(dominant: {stats.get('dominant_category', 'N/A')})"
             )
 
             # Step 3: Generate title
