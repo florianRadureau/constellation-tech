@@ -39,7 +39,7 @@ class PromptGenerator:
 
     # Base template for all prompts
     BASE_TEMPLATE = """Beautiful cosmic constellation with {tech_count} bright stars.
-Stars of various sizes, very subtly connected with faint delicate lines.
+Stars of various sizes, connected with thin elegant luminous lines.
 {color_hint}
 Magnificent deep space nebula background.
 Professional, stunning, captivating, high quality."""

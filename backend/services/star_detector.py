@@ -318,7 +318,7 @@ class StarDetector:
             rho=1,  # Distance resolution in pixels
             theta=np.pi / 180,  # Angle resolution in radians
             threshold=30,  # Minimum votes
-            minLineLength=40,  # Minimum line length in pixels
+            minLineLength=80,  # Minimum line length (filter short nebula artifacts)
             maxLineGap=10,  # Maximum gap between segments to treat as one line
         )
 
@@ -326,7 +326,23 @@ class StarDetector:
             logger.warning("No lines detected in image, falling back to brightness detection")
             return self.detect(image)
 
-        logger.debug(f"Found {len(lines)} line segments")
+        logger.debug(f"Found {len(lines)} line segments initially")
+
+        # Additional filtering: keep only lines >= 80px (constellation connections)
+        filtered_lines = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            length = math.hypot(x2 - x1, y2 - y1)
+
+            if length >= 80:  # Minimum 80px for true constellation lines
+                filtered_lines.append(line)
+
+        if not filtered_lines:
+            logger.warning("No long lines found (≥80px), falling back to brightness detection")
+            return self.detect(image)
+
+        lines = np.array(filtered_lines)
+        logger.debug(f"Filtered to {len(lines)} lines (length ≥ 80px)")
 
         # Extract all line endpoints
         endpoints = []
