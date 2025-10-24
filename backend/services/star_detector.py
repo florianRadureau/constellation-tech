@@ -45,15 +45,6 @@ class StarPosition:
 class StarDetector:
     """
     Detect star positions in constellation images.
-
-    Uses simple OpenCV threshold method (MVP approach) optimized for
-    Imagen-generated constellation images.
-
-    Example:
-        >>> detector = StarDetector()
-        >>> image = Image.open("constellation.png")
-        >>> stars = detector.detect(image)
-        >>> print(f"Found {len(stars)} stars")
     """
 
     def __init__(
@@ -263,174 +254,213 @@ class StarDetector:
 
         return bright_pixels
 
-    def detect_from_constellation_lines(
-        self, image: Image.Image
-    ) -> list[StarPosition]:
+    def detect_constellation_lines(self, image: Image.Image) -> list[dict]:
         """
-        Detect constellation stars by analyzing connection lines.
+        Detect constellation lines only (pure line detection).
 
-        Uses Canny edge detection + Hough Line Transform to find thin lines
-        connecting stars, then identifies bright stars at line endpoints.
-
-        More robust than brightness thresholding because:
-        - Uses Imagen's own constellation structure (the lines it drew)
-        - Color-independent (works with any nebula colors)
-        - Captures exactly the stars Imagen considers part of constellation
-
-        Algorithm:
-        1. Edge detection (Canny) to find thin lines
-        2. Hough Line Transform to extract line segments
-        3. Find bright stars at line endpoints
-        4. Spatial clustering to deduplicate nearby stars
-        5. Return constellation stars with full metadata
+        Uses Canny edge detection + HoughLinesP to find straight lines
+        in the constellation, regardless of color.
 
         Args:
             image: PIL Image from Imagen
 
         Returns:
-            List of StarPosition objects for constellation stars
+            List of line dicts: [{"x1": int, "y1": int, "x2": int, "y2": int, "length": float}, ...]
 
         Example:
-            >>> stars = detector.detect_from_constellation_lines(image)
-            >>> print(f"Found {len(stars)} constellation stars")
+            >>> lines = detector.detect_constellation_lines(image)
+            >>> print(f"Found {len(lines)} lines")
         """
         import math
 
-        logger.info("Detecting stars via constellation line analysis...")
+        logger.info("Detecting constellation lines (pure geometric detection)...")
 
         # Convert PIL to OpenCV
         cv_image = self._pil_to_cv(image)
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
 
-        # Enhance bright thin lines (reduce noise, keep edges)
-        filtered = cv2.bilateralFilter(gray, 9, 75, 75)
+        # Gaussian blur to reduce noise
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        # Canny edge detection to find thin bright lines
-        edges = cv2.Canny(filtered, threshold1=50, threshold2=150)
+        # Canny edge detection
+        edges = cv2.Canny(blur, threshold1=30, threshold2=100, apertureSize=3)
 
-        # Dilate slightly to connect fragmented line segments
-        kernel = np.ones((3, 3), np.uint8)
-        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
-
-        # Hough Line Transform to detect line segments
+        # HoughLinesP for straight line detection
         lines = cv2.HoughLinesP(
-            edges_dilated,
+            edges,
             rho=1,  # Distance resolution in pixels
             theta=np.pi / 180,  # Angle resolution in radians
-            threshold=30,  # Minimum votes
-            minLineLength=80,  # Minimum line length (filter short nebula artifacts)
-            maxLineGap=10,  # Maximum gap between segments to treat as one line
+            threshold=80,  # Minimum number of points to form a line
+            minLineLength=50,  # Minimum line length
+            maxLineGap=15,  # Maximum gap between segments
         )
 
-        if lines is None or len(lines) == 0:
-            logger.warning("No lines detected in image, falling back to brightness detection")
-            return self.detect(image)
+        detected_lines = []
 
-        logger.debug(f"Found {len(lines)} line segments initially")
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                length = math.hypot(x2 - x1, y2 - y1)
 
-        # Additional filtering: keep only lines >= 80px (constellation connections)
-        filtered_lines = []
+                detected_lines.append({
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "length": length,
+                })
+
+            logger.info(f"✓ Detected {len(detected_lines)} constellation lines")
+        else:
+            logger.warning("No lines detected in image")
+
+        return detected_lines
+
+    def visualize_lines(
+        self, image: Image.Image, lines: list[dict], output_path: str
+    ) -> None:
+        """
+        Create debug image with detected lines and endpoints.
+
+        Args:
+            image: Original PIL Image
+            lines: List of line dicts from detect_constellation_lines()
+            output_path: Path to save visualization
+
+        Example:
+            >>> detector.visualize_lines(image, lines, "debug_lines.png")
+        """
+        logger.info(f"Creating line visualization with {len(lines)} lines...")
+
+        # Convert to OpenCV
+        cv_image = self._pil_to_cv(image)
+
+        # Draw lines in green
         for line in lines:
-            x1, y1, x2, y2 = line[0]
-            length = math.hypot(x2 - x1, y2 - y1)
+            cv2.line(
+                cv_image,
+                (line["x1"], line["y1"]),
+                (line["x2"], line["y2"]),
+                (0, 255, 0),  # Green
+                2,
+            )
 
-            if length >= 80:  # Minimum 80px for true constellation lines
-                filtered_lines.append(line)
+            # Mark endpoints with red circles
+            cv2.circle(cv_image, (line["x1"], line["y1"]), 5, (0, 0, 255), -1)
+            cv2.circle(cv_image, (line["x2"], line["y2"]), 5, (0, 0, 255), -1)
 
-        if not filtered_lines:
-            logger.warning("No long lines found (≥80px), falling back to brightness detection")
-            return self.detect(image)
+        # Save
+        cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+        result = Image.fromarray(cv_rgb)
+        result.save(output_path)
 
-        lines = np.array(filtered_lines)
-        logger.debug(f"Filtered to {len(lines)} lines (length ≥ 80px)")
+        logger.info(f"✓ Saved line visualization to {output_path}")
 
-        # Extract all line endpoints
+    def _analyze_line_network(self, lines: list[dict]) -> list[dict]:
+        """
+        Analyze line network to find nodes (clusters of endpoints).
+
+        A node is a spatial cluster of endpoints, representing a junction
+        or connection point in the constellation.
+
+        Args:
+            lines: List of line dicts from detect_constellation_lines()
+
+        Returns:
+            List of node dicts: [{"x": int, "y": int, "degree": int}, ...]
+            where degree = number of lines connected to this node.
+            Sorted by degree (descending) - most connected nodes first.
+
+        Example:
+            >>> nodes = detector._analyze_line_network(lines)
+            >>> print(f"Found {len(nodes)} nodes")
+        """
+        import math
+
+        logger.debug("Analyzing line network to find nodes...")
+
+        # Extract all endpoints
         endpoints = []
         for line in lines:
-            x1, y1, x2, y2 = line[0]
-            endpoints.append((x1, y1))
-            endpoints.append((x2, y2))
+            endpoints.append((line["x1"], line["y1"]))
+            endpoints.append((line["x2"], line["y2"]))
 
-        logger.debug(f"Extracted {len(endpoints)} line endpoints")
+        logger.debug(f"Extracted {len(endpoints)} endpoints from {len(lines)} lines")
 
-        # For each endpoint, search for a bright star nearby
-        star_candidates = []
-        search_radius = 30  # pixels
-
-        for ex, ey in endpoints:
-            # Extract region around endpoint
-            x1 = max(0, ex - search_radius)
-            y1 = max(0, ey - search_radius)
-            x2 = min(image.width, ex + search_radius)
-            y2 = min(image.height, ey + search_radius)
-
-            region = gray[y1:y2, x1:x2]
-
-            if region.size == 0:
-                continue
-
-            # Find brightest point in region
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(region)
-
-            # Check if bright enough to be a star
-            if max_val > 180:  # Bright threshold
-                # Convert to absolute coordinates
-                star_x = x1 + max_loc[0]
-                star_y = y1 + max_loc[1]
-
-                star_candidates.append(
-                    {"x": star_x, "y": star_y, "brightness": float(max_val)}
-                )
-
-        logger.debug(f"Found {len(star_candidates)} star candidates")
-
-        if len(star_candidates) == 0:
-            logger.warning("No bright stars found at line endpoints, falling back")
-            return self.detect(image)
-
-        # Spatial clustering to deduplicate stars that are very close
-        deduplicated_stars = []
+        # Spatial clustering (40px distance) to find nodes
+        nodes = []
         used = set()
 
-        for i, candidate in enumerate(star_candidates):
+        for i, (x, y) in enumerate(endpoints):
             if i in used:
                 continue
 
-            # Find all candidates within 30px (same star)
-            cluster = [candidate]
-            for j, other in enumerate(star_candidates):
+            # Find all endpoints within 40px (same node)
+            cluster = [(x, y)]
+            for j, (ox, oy) in enumerate(endpoints):
                 if j <= i or j in used:
                     continue
 
-                distance = math.hypot(
-                    candidate["x"] - other["x"], candidate["y"] - other["y"]
-                )
-
-                if distance < 30:
-                    cluster.append(other)
+                distance = math.hypot(x - ox, y - oy)
+                if distance < 40:
+                    cluster.append((ox, oy))
                     used.add(j)
 
-            # Average position and max brightness for cluster
-            avg_x = int(np.mean([s["x"] for s in cluster]))
-            avg_y = int(np.mean([s["y"] for s in cluster]))
-            max_brightness = max(s["brightness"] for s in cluster)
+            # Average position of cluster = node position
+            avg_x = int(np.mean([p[0] for p in cluster]))
+            avg_y = int(np.mean([p[1] for p in cluster]))
+            degree = len(cluster)  # Number of connections
 
-            deduplicated_stars.append(
-                {"x": avg_x, "y": avg_y, "brightness": max_brightness}
-            )
+            nodes.append({"x": avg_x, "y": avg_y, "degree": degree})
 
-        logger.debug(f"After deduplication: {len(deduplicated_stars)} unique stars")
+        # Sort by degree (most connected nodes first)
+        nodes.sort(key=lambda n: n["degree"], reverse=True)
 
-        # Convert to StarPosition objects with full metadata
+        logger.info(f"✓ Found {len(nodes)} nodes in line network")
+        logger.debug(
+            f"  Top 3 nodes: {[(n['degree'], n['x'], n['y']) for n in nodes[:3]]}"
+        )
+
+        return nodes
+
+    def _position_labels_from_nodes(
+        self,
+        nodes: list[dict],
+        cv_image: np.ndarray,
+        gray: np.ndarray,
+        tech_count: int,
+    ) -> list[StarPosition]:
+        """
+        Position labels at important nodes in the network.
+
+        Selects the N most connected nodes and creates StarPosition objects
+        at those locations.
+
+        Args:
+            nodes: List of node dicts from _analyze_line_network()
+            cv_image: OpenCV image (for color extraction)
+            gray: Grayscale image (for brightness)
+            tech_count: Number of labels to position
+
+        Returns:
+            List of StarPosition objects at node locations
+
+        Example:
+            >>> stars = detector._position_labels_from_nodes(nodes, cv_image, gray, 7)
+        """
+        logger.debug(f"Positioning {tech_count} labels at important nodes...")
+
         stars: list[StarPosition] = []
-        for star_data in deduplicated_stars:
-            x, y = star_data["x"], star_data["y"]
-            brightness = star_data["brightness"]
 
-            # Get color at star position
+        # Select top N most connected nodes
+        selected_nodes = nodes[:tech_count]
+
+        for node in selected_nodes:
+            x, y = node["x"], node["y"]
+
+            # Calculate metadata at this position
+            brightness = float(gray[y, x])
             color = self._get_color_at_point(cv_image, x, y)
-
-            # Estimate star size
             size = self._estimate_star_size(gray, x, y)
 
             stars.append(
@@ -439,16 +469,66 @@ class StarDetector:
                 )
             )
 
-        # Sort by brightness (brightest first)
+        # Sort by brightness (brightest first) for consistency with other methods
         stars.sort(key=lambda s: s.brightness, reverse=True)
 
-        logger.info(
-            f"✓ Detected {len(stars)} constellation stars from line analysis"
-        )
+        logger.info(f"✓ Positioned {len(stars)} labels at network nodes")
 
-        # Log top 3 for debugging
-        for i, star in enumerate(stars[:3]):
-            logger.debug(f"  Star {i+1}: {star}")
+        return stars
+
+    def detect_from_constellation_lines(
+        self, image: Image.Image, target_count: int = None
+    ) -> list[StarPosition]:
+        """
+        Detect constellation stars by analyzing line network.
+
+        New approach (v2):
+        1. Detect all constellation lines (pure geometric detection)
+        2. Create debug visualization (lines + endpoints)
+        3. Analyze line network to find nodes (junctions/endpoints)
+        4. Position labels at important nodes (most connected)
+
+        This is more robust because it uses the topological structure
+        of the constellation rather than trying to find individual stars.
+
+        Args:
+            image: PIL Image from Imagen
+            target_count: Optional number of stars to detect (defaults to all nodes)
+
+        Returns:
+            List of StarPosition objects at network nodes
+
+        Example:
+            >>> stars = detector.detect_from_constellation_lines(image, target_count=7)
+            >>> print(f"Found {len(stars)} stars at network nodes")
+        """
+        logger.info("Detecting constellation via line network analysis (v2)...")
+
+        # Step 1: Detect constellation lines
+        lines = self.detect_constellation_lines(image)
+
+        if not lines:
+            logger.warning("No lines detected, falling back to brightness detection")
+            return self.detect(image)
+
+        # Step 2: Create debug visualization
+        self.visualize_lines(image, lines, "debug_lines.png")
+
+        # Step 3: Analyze line network to find nodes
+        nodes = self._analyze_line_network(lines)
+
+        if not nodes:
+            logger.warning("No nodes found in network, falling back to brightness detection")
+            return self.detect(image)
+
+        # Step 4: Position labels at nodes
+        # Convert image for metadata extraction
+        cv_image = self._pil_to_cv(image)
+        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+
+        # Use target_count or all nodes
+        count = target_count if target_count is not None else len(nodes)
+        stars = self._position_labels_from_nodes(nodes, cv_image, gray, count)
 
         return stars
 
