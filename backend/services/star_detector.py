@@ -254,296 +254,32 @@ class StarDetector:
 
         return bright_pixels
 
-    def detect_constellation_lines(self, image: Image.Image) -> list[dict]:
-        """
-        Detect constellation lines only (pure line detection).
-
-        Uses Canny edge detection + HoughLinesP to find straight lines
-        in the constellation, regardless of color.
-
-        Args:
-            image: PIL Image from Imagen
-
-        Returns:
-            List of line dicts: [{"x1": int, "y1": int, "x2": int, "y2": int, "length": float}, ...]
-
-        Example:
-            >>> lines = detector.detect_constellation_lines(image)
-            >>> print(f"Found {len(lines)} lines")
-        """
-        import math
-
-        logger.info("Detecting constellation lines (pure geometric detection)...")
-
-        # Convert PIL to OpenCV
-        cv_image = self._pil_to_cv(image)
-        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-
-        # Gaussian blur to reduce noise
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # Canny edge detection
-        edges = cv2.Canny(blur, threshold1=30, threshold2=100, apertureSize=3)
-
-        # HoughLinesP for straight line detection
-        lines = cv2.HoughLinesP(
-            edges,
-            rho=1,  # Distance resolution in pixels
-            theta=np.pi / 180,  # Angle resolution in radians
-            threshold=80,  # Minimum number of points to form a line
-            minLineLength=50,  # Minimum line length
-            maxLineGap=15,  # Maximum gap between segments
-        )
-
-        detected_lines = []
-
-        if lines is not None:
-            for line in lines:
-                x1, y1, x2, y2 = line[0]
-                length = math.hypot(x2 - x1, y2 - y1)
-
-                detected_lines.append({
-                    "x1": x1,
-                    "y1": y1,
-                    "x2": x2,
-                    "y2": y2,
-                    "length": length,
-                })
-
-            logger.info(f"✓ Detected {len(detected_lines)} constellation lines")
-        else:
-            logger.warning("No lines detected in image")
-
-        return detected_lines
-
-    def visualize_lines(
-        self, image: Image.Image, lines: list[dict], output_path: str
-    ) -> None:
-        """
-        Create debug image with detected lines and endpoints.
-
-        Args:
-            image: Original PIL Image
-            lines: List of line dicts from detect_constellation_lines()
-            output_path: Path to save visualization
-
-        Example:
-            >>> detector.visualize_lines(image, lines, "debug_lines.png")
-        """
-        logger.info(f"Creating line visualization with {len(lines)} lines...")
-
-        # Convert to OpenCV
-        cv_image = self._pil_to_cv(image)
-
-        # Draw lines in green
-        for line in lines:
-            cv2.line(
-                cv_image,
-                (line["x1"], line["y1"]),
-                (line["x2"], line["y2"]),
-                (0, 255, 0),  # Green
-                2,
-            )
-
-            # Mark endpoints with red circles
-            cv2.circle(cv_image, (line["x1"], line["y1"]), 5, (0, 0, 255), -1)
-            cv2.circle(cv_image, (line["x2"], line["y2"]), 5, (0, 0, 255), -1)
-
-        # Save
-        cv_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-        result = Image.fromarray(cv_rgb)
-        result.save(output_path)
-
-        logger.info(f"✓ Saved line visualization to {output_path}")
-
-    def _analyze_line_network(self, lines: list[dict]) -> list[dict]:
-        """
-        Analyze line network to find nodes (clusters of endpoints).
-
-        A node is a spatial cluster of endpoints, representing a junction
-        or connection point in the constellation.
-
-        Args:
-            lines: List of line dicts from detect_constellation_lines()
-
-        Returns:
-            List of node dicts: [{"x": int, "y": int, "degree": int}, ...]
-            where degree = number of lines connected to this node.
-            Sorted by degree (descending) - most connected nodes first.
-
-        Example:
-            >>> nodes = detector._analyze_line_network(lines)
-            >>> print(f"Found {len(nodes)} nodes")
-        """
-        import math
-
-        logger.debug("Analyzing line network to find nodes...")
-
-        # Extract all endpoints
-        endpoints = []
-        for line in lines:
-            endpoints.append((line["x1"], line["y1"]))
-            endpoints.append((line["x2"], line["y2"]))
-
-        logger.debug(f"Extracted {len(endpoints)} endpoints from {len(lines)} lines")
-
-        # Spatial clustering (40px distance) to find nodes
-        nodes = []
-        used = set()
-
-        for i, (x, y) in enumerate(endpoints):
-            if i in used:
-                continue
-
-            # Find all endpoints within 40px (same node)
-            cluster = [(x, y)]
-            for j, (ox, oy) in enumerate(endpoints):
-                if j <= i or j in used:
-                    continue
-
-                distance = math.hypot(x - ox, y - oy)
-                if distance < 40:
-                    cluster.append((ox, oy))
-                    used.add(j)
-
-            # Average position of cluster = node position
-            avg_x = int(np.mean([p[0] for p in cluster]))
-            avg_y = int(np.mean([p[1] for p in cluster]))
-            degree = len(cluster)  # Number of connections
-
-            nodes.append({"x": avg_x, "y": avg_y, "degree": degree})
-
-        # Sort by degree (most connected nodes first)
-        nodes.sort(key=lambda n: n["degree"], reverse=True)
-
-        logger.info(f"✓ Found {len(nodes)} nodes in line network")
-        logger.debug(
-            f"  Top 3 nodes: {[(n['degree'], n['x'], n['y']) for n in nodes[:3]]}"
-        )
-
-        return nodes
-
-    def _position_labels_from_nodes(
-        self,
-        nodes: list[dict],
-        cv_image: np.ndarray,
-        gray: np.ndarray,
-        tech_count: int,
-    ) -> list[StarPosition]:
-        """
-        Position labels at important nodes in the network.
-
-        Selects the N most connected nodes and creates StarPosition objects
-        at those locations.
-
-        Args:
-            nodes: List of node dicts from _analyze_line_network()
-            cv_image: OpenCV image (for color extraction)
-            gray: Grayscale image (for brightness)
-            tech_count: Number of labels to position
-
-        Returns:
-            List of StarPosition objects at node locations
-
-        Example:
-            >>> stars = detector._position_labels_from_nodes(nodes, cv_image, gray, 7)
-        """
-        logger.debug(f"Positioning {tech_count} labels at important nodes...")
-
-        stars: list[StarPosition] = []
-
-        # Select top N most connected nodes
-        selected_nodes = nodes[:tech_count]
-
-        for node in selected_nodes:
-            x, y = node["x"], node["y"]
-
-            # Calculate metadata at this position
-            brightness = float(gray[y, x])
-            color = self._get_color_at_point(cv_image, x, y)
-            size = self._estimate_star_size(gray, x, y)
-
-            stars.append(
-                StarPosition(
-                    x=x, y=y, brightness=brightness, color=color, size=size
-                )
-            )
-
-        # Sort by brightness (brightest first) for consistency with other methods
-        stars.sort(key=lambda s: s.brightness, reverse=True)
-
-        logger.info(f"✓ Positioned {len(stars)} labels at network nodes")
-
-        return stars
-
     def detect_from_constellation_lines(
-        self, image: Image.Image, target_count: int = None
+        self, image: Image.Image
     ) -> list[StarPosition]:
         """
-        Detect constellation stars by analyzing line network.
-
-        New approach (v2):
-        1. Detect all constellation lines (pure geometric detection)
-        2. Create debug visualization (lines + endpoints)
-        3. Analyze line network to find nodes (junctions/endpoints)
-        4. Position labels at important nodes (most connected)
-
-        This is more robust because it uses the topological structure
-        of the constellation rather than trying to find individual stars.
+        DEPRECATED: Line-based detection no longer used.
+        Fallback to brightness detection.
 
         Args:
             image: PIL Image from Imagen
-            target_count: Optional number of stars to detect (defaults to all nodes)
 
         Returns:
-            List of StarPosition objects at network nodes
-
-        Example:
-            >>> stars = detector.detect_from_constellation_lines(image, target_count=7)
-            >>> print(f"Found {len(stars)} stars at network nodes")
+            List of StarPosition objects from brightness detection
         """
-        logger.info("Detecting constellation via line network analysis (v2)...")
-
-        # Step 1: Detect constellation lines
-        lines = self.detect_constellation_lines(image)
-
-        if not lines:
-            logger.warning("No lines detected, falling back to brightness detection")
-            return self.detect(image)
-
-        # Step 2: Create debug visualization
-        self.visualize_lines(image, lines, "debug_lines.png")
-
-        # Step 3: Analyze line network to find nodes
-        nodes = self._analyze_line_network(lines)
-
-        if not nodes:
-            logger.warning("No nodes found in network, falling back to brightness detection")
-            return self.detect(image)
-
-        # Step 4: Position labels at nodes
-        # Convert image for metadata extraction
-        cv_image = self._pil_to_cv(image)
-        gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-
-        # Use target_count or all nodes
-        count = target_count if target_count is not None else len(nodes)
-        stars = self._position_labels_from_nodes(nodes, cv_image, gray, count)
-
-        return stars
+        logger.warning(
+            "detect_from_constellation_lines is deprecated, using brightness detection"
+        )
+        return self.detect(image)
 
     def detect_with_adjustable_threshold(
         self, image: Image.Image, target_count: int
     ) -> list[StarPosition]:
         """
-        Detect stars with automatic method selection.
+        Detect stars with brightness thresholding and automatic adjustment.
 
-        Primary method: Line-based detection (analyzes constellation lines)
-        Fallback method: Brightness thresholding with adjustment
-
-        The line-based method is more robust because it uses the actual
-        constellation structure from Imagen (the connection lines), which
-        identifies exactly which stars are part of the constellation.
+        NOTE: This method is deprecated in the new architecture where
+        constellation positions are pre-calculated. Kept as backup/fallback.
 
         Args:
             image: PIL Image
@@ -555,26 +291,7 @@ class StarDetector:
         Example:
             >>> stars = detector.detect_with_adjustable_threshold(image, target_count=10)
         """
-        logger.info(f"Detecting {target_count} stars...")
-
-        # Try line-based detection first (more robust)
-        logger.info("Attempting line-based constellation detection...")
-        stars = self.detect_from_constellation_lines(image)
-
-        # If we got a reasonable number of stars, use them
-        if len(stars) >= target_count - 2:  # Allow -2 tolerance
-            logger.info(
-                f"✓ Line-based detection successful: {len(stars)} stars "
-                f"(target was {target_count})"
-            )
-            # Don't limit to target_count - use all detected constellation stars
-            return stars
-
-        # Fallback to brightness-based detection
-        logger.warning(
-            f"Line-based detection found only {len(stars)} stars, "
-            f"falling back to brightness detection"
-        )
+        logger.info(f"Detecting {target_count} stars with brightness thresholding...")
 
         # Try initial brightness detection
         stars = self.detect(image)

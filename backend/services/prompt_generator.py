@@ -156,6 +156,44 @@ Stunning, professional, high quality."""
         logger.info(f"Generated simple prompt for {tech_count} stars")
         return prompt
 
+    def generate_background_only(self, dominant_category: str = "Other") -> str:
+        """
+        Generate prompt for nebula background WITHOUT stars or lines.
+
+        Used in the new deterministic architecture where constellation
+        positions are pre-calculated. Imagen generates only the nebula
+        background, then we compose stars and lines manually.
+
+        Args:
+            dominant_category: Dominant tech category for color hints
+
+        Returns:
+            Prompt string for pure nebula background
+
+        Example:
+            >>> generator = PromptGenerator()
+            >>> prompt = generator.generate_background_only("Backend")
+            >>> print(prompt)
+            Beautiful deep space nebula background...
+        """
+        # Get color hint for category
+        color_hint = self.CATEGORY_COLORS.get(
+            dominant_category, self.CATEGORY_COLORS["Other"]
+        )
+
+        prompt = f"""Beautiful deep space nebula background.
+Magnificent cosmic nebula with {color_hint}.
+Rich colors, swirling gas clouds, cosmic dust.
+No stars, no constellations, just pure nebula.
+Professional, stunning, high quality."""
+
+        logger.info(
+            f"Generated background-only prompt for category '{dominant_category}'"
+        )
+        logger.debug(f"Prompt: {prompt[:100]}...")
+
+        return prompt
+
     def get_color_hints(self) -> Dict[str, str]:
         """
         Get all available color hints by category.

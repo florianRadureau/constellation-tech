@@ -12,6 +12,7 @@ from typing import Any, Dict
 from PIL import Image
 
 from services.cv_parser import CVParser
+from services.image_composer import ImageComposer
 from services.image_generator import ImageGenerator
 from services.prompt_generator import PromptGenerator
 from services.star_detector import StarDetector
@@ -20,6 +21,7 @@ from services.tech_analyzer import TechAnalyzer
 from services.technology_mapper import TechnologyMapper
 from services.text_overlay_service import TextOverlayService
 from services.title_generator import TitleGenerator
+from utils.constellation_templates import get_constellation_template
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ class ConstellationOrchestrator:
         self.title_generator = TitleGenerator()
         self.prompt_generator = PromptGenerator()
         self.image_generator = ImageGenerator()
+        self.image_composer = ImageComposer()
         self.star_detector = StarDetector()
         self.tech_mapper = TechnologyMapper()
         self.text_overlay = TextOverlayService()
@@ -136,53 +139,88 @@ class ConstellationOrchestrator:
             title = self.title_generator.generate(stats)
             logger.info(f"✓ Title: {title}")
 
-            # Step 4: Generate prompt
-            logger.info("[4/10] Generating prompt...")
-            # IMPORTANT: Always have MORE technologies than stars
-            # This ensures every star can be labeled without orphan stars
-            # Strategy: Request 70-80% of tech count as stars (with constraints)
-            total_techs = len(technologies)
-            star_count = max(3, min(total_techs - 2, 12))  # Min 3, max 12, always -2 from techs
-
-            logger.info(
-                f"Planning constellation: {total_techs} technologies → {star_count} stars "
-                f"(surplus: {total_techs - star_count} techs available)"
+            # Step 4: Generate background-only prompt
+            logger.info("[4/11] Generating nebula background prompt...")
+            dominant_category = stats.get("dominant_category", "Other")
+            background_prompt = self.prompt_generator.generate_background_only(
+                dominant_category
             )
+            logger.info(f"✓ Background prompt generated for category '{dominant_category}'")
 
-            prompt = self.prompt_generator.generate_from_stats(stats, star_count)
-            logger.info(f"✓ Prompt generated ({star_count} stars requested)")
-
-            # Step 5: Generate image with Vertex AI
-            logger.info("[5/10] Generating constellation image (Vertex AI)...")
+            # Step 5: Generate nebula background with Vertex AI
+            logger.info("[5/11] Generating nebula background (Vertex AI)...")
             logger.info("⏳ This may take 15-30 seconds...")
-            raw_image = await self.image_generator.generate(prompt)
-            logger.info(f"✓ Image generated: {raw_image.size}")
+            background_image = await self.image_generator.generate(background_prompt)
+            logger.info(f"✓ Nebula background generated: {background_image.size}")
 
-            # Step 6: Detect stars
-            logger.info("[6/10] Detecting stars...")
-            stars = self.star_detector.detect_with_adjustable_threshold(
-                raw_image, target_count=star_count
+            # Step 6: Select constellation template
+            logger.info("[6/11] Selecting constellation template...")
+            # Use hash of CV text for deterministic template selection
+            template_index = hash(text) % 3  # Cycles through 3 available templates
+            template = get_constellation_template(template_index)
+            logger.info(f"✓ Selected template: {template['name']} ({len(template['stars'])} stars)")
+
+            # Step 7: Map technologies to constellation positions
+            logger.info("[7/11] Mapping technologies to constellation positions...")
+            total_techs = len(technologies)
+            available_positions = len(template["stars"])
+
+            # Use only as many positions as we have technologies (up to template max)
+            num_mappings = min(total_techs, available_positions)
+
+            mappings = []
+            for i in range(num_mappings):
+                tech = technologies[i]
+                star_x, star_y = template["stars"][i]
+
+                # Create StarPosition at template position
+                from services.star_detector import StarPosition
+                star = StarPosition(
+                    x=star_x,
+                    y=star_y,
+                    brightness=255,
+                    color=(255, 255, 255),
+                    size=20
+                )
+
+                # Create TechData
+                from services.technology_mapper import TechData, StarTechMapping
+                tech_data = TechData(
+                    name=tech["name"],
+                    category=tech["category"],
+                    color=tech.get("color", "#FFFFFF"),
+                    score=tech["score"],
+                    size=tech.get("size", "medium")
+                )
+
+                # Create mapping
+                mapping = StarTechMapping(star=star, tech=tech_data)
+                mappings.append(mapping)
+
+            logger.info(f"✓ Created {len(mappings)} position mappings")
+
+            # Step 8: Compose image with layers
+            logger.info("[8/11] Composing constellation layers...")
+            composed_image = self.image_composer.compose(
+                background=background_image,
+                star_positions=template["stars"][:num_mappings],
+                connections=template["connections"]
             )
-            logger.info(f"✓ Detected {len(stars)} stars (target was {star_count})")
+            logger.info("✓ Constellation composed (background + lines + stars)")
 
-            # Step 7: Map stars to technologies
-            logger.info("[7/10] Mapping stars to technologies...")
-            mappings = self.tech_mapper.map(stars, technologies)
-            logger.info(f"✓ Created {len(mappings)} mappings")
-
-            # Step 8: Add text overlays
-            logger.info("[8/10] Adding text overlays...")
-            final_image = self.text_overlay.compose(raw_image, mappings, title)
+            # Step 9: Add text overlays (title + labels)
+            logger.info("[9/11] Adding text overlays...")
+            final_image = self.text_overlay.compose(composed_image, mappings, title)
             logger.info("✓ Text overlays added")
 
-            # Step 9: Upload to Cloud Storage
-            logger.info("[9/10] Uploading to Cloud Storage...")
+            # Step 10: Upload to Cloud Storage
+            logger.info("[10/11] Uploading to Cloud Storage...")
             image_url = await self.storage.upload(final_image)
             logger.info(f"✓ Uploaded: {image_url[:60]}...")
 
-            # Step 10: Build result
+            # Step 11: Build result
             generation_time = time.time() - start_time
-            logger.info(f"[10/10] Generation complete in {generation_time:.2f}s")
+            logger.info(f"[11/11] Generation complete in {generation_time:.2f}s")
 
             result = ConstellationResult(
                 image_url=image_url,
@@ -190,14 +228,15 @@ class ConstellationOrchestrator:
                 technologies=technologies,
                 stats=stats,
                 generation_time=generation_time,
-                stars_detected=len(stars),
+                stars_detected=num_mappings,
             )
 
             logger.info(f"=" * 80)
             logger.info("✅ CONSTELLATION GENERATION SUCCESSFUL")
             logger.info(f"   Title: {title}")
+            logger.info(f"   Template: {template['name']}")
             logger.info(f"   Technologies: {len(technologies)}")
-            logger.info(f"   Stars: {len(stars)}")
+            logger.info(f"   Stars: {num_mappings}")
             logger.info(f"   Time: {generation_time:.2f}s")
             logger.info(f"=" * 80)
 
