@@ -135,6 +135,46 @@ class ImageComposer:
 
         return star
 
+    def _draw_glowing_line(
+        self,
+        draw: ImageDraw.Draw,
+        start: Tuple[int, int],
+        end: Tuple[int, int],
+        color_base: Tuple[int, int, int] = (255, 220, 150),
+    ) -> None:
+        """
+        Draw line with multi-layer glow effect.
+
+        Creates a luminous halo by drawing 5 progressively thinner lines
+        with increasing opacity, from widest/transparent to thinnest/opaque.
+
+        Args:
+            draw: ImageDraw object to draw on
+            start: Starting point (x1, y1)
+            end: Ending point (x2, y2)
+            color_base: Base RGB color (default: golden)
+
+        Layers (drawn from external to center):
+            Layer 5: 8px width, 40 alpha  - Wide, very transparent halo
+            Layer 4: 6px width, 70 alpha  - Intermediate diffusion
+            Layer 3: 4px width, 110 alpha - Transition
+            Layer 2: 3px width, 150 alpha - Near center
+            Layer 1: 2px width, 190 alpha - Sharp, luminous center
+        """
+        # Layer configuration: (width, alpha) from external to center
+        layers = [
+            (8, 40),   # External halo
+            (6, 70),   # Diffusion
+            (4, 110),  # Transition
+            (3, 150),  # Near center
+            (2, 190),  # Center line
+        ]
+
+        # Draw each layer from widest to thinnest
+        for width, alpha in layers:
+            color = (*color_base, alpha)
+            draw.line([start, end], fill=color, width=width)
+
     def compose(
         self,
         background: Image.Image,
@@ -188,15 +228,15 @@ class ImageComposer:
             x1, y1 = star_positions[idx1]
             x2, y2 = star_positions[idx2]
 
-            # Draw semi-transparent golden line
-            line_draw.line(
-                [(x1, y1), (x2, y2)],
-                fill=(255, 220, 150, 180),  # Golden with 70% opacity
-                width=2,
+            # Draw glowing line with multi-layer effect (5 layers)
+            self._draw_glowing_line(
+                draw=line_draw,
+                start=(x1, y1),
+                end=(x2, y2),
             )
 
         result = Image.alpha_composite(result, line_layer)
-        logger.debug(f"Layer 2: Drew {len(connections)} connection lines")
+        logger.debug(f"Layer 2: Drew {len(connections)} glowing connection lines")
 
         # Layer 3: Stars (random sprite per star)
         star_layer = Image.new("RGBA", self.canvas_size, (0, 0, 0, 0))
