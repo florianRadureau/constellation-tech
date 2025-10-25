@@ -15,7 +15,6 @@ from services.cv_parser import CVParser
 from services.image_composer import ImageComposer
 from services.image_generator import ImageGenerator
 from services.prompt_generator import PromptGenerator
-from services.star_detector import StarDetector
 from services.storage_service import StorageService
 from services.tech_analyzer import TechAnalyzer
 from services.technology_mapper import TechnologyMapper
@@ -82,7 +81,6 @@ class ConstellationOrchestrator:
         self.prompt_generator = PromptGenerator()
         self.image_generator = ImageGenerator()
         self.image_composer = ImageComposer()
-        self.star_detector = StarDetector()
         self.tech_mapper = TechnologyMapper()
         self.text_overlay = TextOverlayService()
         self.storage = StorageService()
