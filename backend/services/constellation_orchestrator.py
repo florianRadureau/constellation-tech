@@ -208,7 +208,13 @@ class ConstellationOrchestrator:
 
             # Step 9: Add text overlays (title + labels)
             logger.info("[9/11] Adding text overlays...")
-            final_image = self.text_overlay.compose(composed_image, mappings, title)
+            final_image = self.text_overlay.compose(
+                composed_image,
+                mappings,
+                title,
+                template["connections"],
+                template["stars"][:num_mappings]
+            )
             logger.info("✓ Text overlays added")
 
             # Step 10: Upload to Cloud Storage

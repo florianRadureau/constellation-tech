@@ -70,6 +70,8 @@ class TextOverlayService:
         image: Image.Image,
         mappings: list[StarTechMapping],
         title: str,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
     ) -> Image.Image:
         """
         Add all text overlays to image.
@@ -78,12 +80,14 @@ class TextOverlayService:
             image: Base constellation image
             mappings: Star-technology mappings
             title: Constellation title
+            connections: List of (star_idx1, star_idx2) defining constellation lines
+            star_positions: List of (x, y) positions for each star
 
         Returns:
             Image with text overlays
 
         Example:
-            >>> final = service.compose(image, mappings, "La Constellation du Pixel Parfait")
+            >>> final = service.compose(image, mappings, "La Constellation", connections, positions)
         """
         # Work on a copy
         result = image.copy()
@@ -91,8 +95,8 @@ class TextOverlayService:
         # Add title
         result = self.add_title(result, title)
 
-        # Add technology labels with smart positioning
-        result = self.add_tech_labels(result, mappings)
+        # Add technology labels with topology-aware positioning
+        result = self.add_tech_labels(result, mappings, connections, star_positions)
 
         # Add watermark
         result = self.add_watermark(result)
@@ -185,33 +189,40 @@ class TextOverlayService:
         return result
 
     def add_tech_labels(
-        self, image: Image.Image, mappings: list[StarTechMapping]
+        self,
+        image: Image.Image,
+        mappings: list[StarTechMapping],
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
     ) -> Image.Image:
         """
-        Add technology labels with smart collision avoidance.
+        Add technology labels with topology-aware positioning.
 
-        Uses intelligent angle calculation to place labels in zones away from other stars.
+        Uses constellation topology (connection lines) to place labels in optimal positions
+        away from the constellation structure.
 
         Args:
             image: Base image
             mappings: Star-technology mappings
+            connections: List of (star_idx1, star_idx2) defining constellation lines
+            star_positions: List of (x, y) positions for each star
 
         Returns:
             Image with labels
         """
         draw = ImageDraw.Draw(image)
 
-        # Extract all star positions for smart placement
+        # Extract all star positions for collision checking
         all_star_positions = [mapping.star for mapping in mappings]
 
         # Track occupied regions by labels
         occupied_boxes: list[Tuple[int, int, int, int]] = []
 
-        for mapping in mappings:
+        for idx, mapping in enumerate(mappings):
             star = mapping.star
             tech_name = mapping.tech.name
 
-            # Find best position using smart angle calculation
+            # Find best position using topology-aware angle calculation
             position = self._find_label_position(
                 draw,
                 star.x,
@@ -220,6 +231,9 @@ class TextOverlayService:
                 occupied_boxes,
                 image.size,
                 all_star_positions,
+                idx,  # Star index for connection lookup
+                connections,
+                star_positions,
             )
 
             if position is None:
@@ -319,15 +333,19 @@ class TextOverlayService:
         occupied_boxes: list[Tuple[int, int, int, int]],
         image_size: Tuple[int, int],
         all_stars: list[StarPosition],
+        star_idx: int,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
     ) -> Tuple[int, int] | None:
         """
-        Find best position for label using smart angle calculation.
+        Find best position for label using topology-aware angle calculation.
 
         Algorithm:
-        1. Calculate optimal angle (clearest zone away from other stars)
-        2. Generate 8 radial positions around optimal angle
-        3. Try each position, checking collisions with labels AND other stars
-        4. Return first valid position or None
+        1. Calculate optimal angle based on constellation connections
+        2. Adjust position based on label width (align end at MIN_DISTANCE_FROM_STAR)
+        3. Try position, checking collisions with labels and other stars
+        4. If collision, try alternative positions with angular offsets
+        5. Return first valid position or None
 
         Args:
             draw: ImageDraw object
@@ -336,19 +354,44 @@ class TextOverlayService:
             occupied_boxes: List of occupied bounding boxes
             image_size: Image dimensions
             all_stars: All star positions in constellation
+            star_idx: Index of this star for connection lookup
+            connections: List of constellation connections
+            star_positions: List of all star positions
 
         Returns:
             (x, y) position or None if no valid position found
         """
-        # Calculate optimal angle (away from other stars)
-        optimal_angle = self._calculate_smart_angle(
-            star_x, star_y, all_stars
+        # Calculate optimal angle based on constellation topology
+        optimal_angle = self._calculate_angle_from_connections(
+            star_idx, star_x, star_y, connections, star_positions
         )
 
-        # Generate radial positions around optimal angle
-        candidate_positions = self._generate_radial_positions(
-            star_x, star_y, optimal_angle, self.NUM_RADIAL_ATTEMPTS
-        )
+        # Calculate label width
+        bbox = draw.textbbox((0, 0), text, font=self.label_font)
+        label_width = bbox[2] - bbox[0]
+
+        # Adjust distance based on angle to align label end at MIN_DISTANCE_FROM_STAR
+        # If angle in quadrants 3-4 (180° to 360°), label extends left
+        if math.pi < optimal_angle < 2 * math.pi:
+            # Label goes left, so add label width to ensure end is at 60px
+            distance_from_star = self.MIN_DISTANCE_FROM_STAR + label_width
+        else:
+            # Label goes right, normal distance
+            distance_from_star = self.MIN_DISTANCE_FROM_STAR
+
+        # Calculate primary position
+        primary_x = star_x + int(distance_from_star * math.cos(optimal_angle))
+        primary_y = star_y + int(distance_from_star * math.sin(optimal_angle))
+
+        # Try primary position first, then alternatives with angular offsets
+        angle_offsets = [0, 15, -15, 30, -30, 45, -45, 60]  # In degrees
+        candidate_positions = []
+        for offset_deg in angle_offsets:
+            offset_rad = math.radians(offset_deg)
+            angle = optimal_angle + offset_rad
+            x = star_x + int(distance_from_star * math.cos(angle))
+            y = star_y + int(distance_from_star * math.sin(angle))
+            candidate_positions.append((x, y))
 
         # Try each candidate position
         for x, y in candidate_positions:
@@ -390,6 +433,78 @@ class TextOverlayService:
 
         # No valid position found
         return None
+
+    def _calculate_angle_from_connections(
+        self,
+        star_idx: int,
+        star_x: int,
+        star_y: int,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
+    ) -> float:
+        """
+        Calculate optimal angle for label based on constellation topology.
+
+        Analyzes the connection lines from this star and finds the optimal position
+        by placing the label opposite to the arc center of connected lines.
+
+        Algorithm:
+        1. Find all connections for this star
+        2. Calculate angle of each connected line
+        3. Find center of arc formed by these angles
+        4. Return opposite angle (+180°)
+
+        Args:
+            star_idx: Index of current star in star_positions list
+            star_x, star_y: Star coordinates
+            connections: List of (star_idx1, star_idx2) tuples
+            star_positions: List of all star (x, y) positions
+
+        Returns:
+            Optimal angle in radians (opposite to connection arc center)
+
+        Example:
+            If star has connections at 90° and 180°:
+            - Arc center = 135°
+            - Optimal angle = 135° + 180° = 315°
+        """
+        # Find all connections for this star
+        star_connections = [
+            conn for conn in connections if star_idx in conn
+        ]
+
+        if not star_connections:
+            # No connections - this shouldn't happen based on user requirements
+            # But as safety fallback, place label to the right
+            logger.warning(
+                f"Star {star_idx} has no connections, using fallback angle 0°"
+            )
+            return 0.0
+
+        # Calculate angles for each connected line
+        connected_angles: list[float] = []
+        for conn in star_connections:
+            # Get the OTHER star in the connection
+            other_idx = conn[1] if conn[0] == star_idx else conn[0]
+            other_x, other_y = star_positions[other_idx]
+
+            # Calculate angle from current star to connected star
+            angle = math.atan2(other_y - star_y, other_x - star_x)
+            connected_angles.append(angle)
+
+        # Calculate center of arc (average of all connection angles)
+        arc_center = sum(connected_angles) / len(connected_angles)
+
+        # Return opposite angle (+180° or +π radians)
+        optimal_angle = (arc_center + math.pi) % (2 * math.pi)
+
+        logger.debug(
+            f"Star {star_idx}: {len(connected_angles)} connections, "
+            f"arc center={math.degrees(arc_center):.0f}°, "
+            f"optimal={math.degrees(optimal_angle):.0f}°"
+        )
+
+        return optimal_angle
 
     def _calculate_smart_angle(
         self, star_x: int, star_y: int, all_stars: list[StarPosition]
