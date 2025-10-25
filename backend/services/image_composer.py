@@ -8,7 +8,9 @@ Composes constellation images with 4 layers:
 4. Labels (handled separately by TextOverlayService)
 """
 
+import glob
 import logging
+import random
 from typing import Tuple
 
 from PIL import Image, ImageDraw
@@ -40,16 +42,57 @@ class ImageComposer:
             canvas_size: Size of canvas (width, height) in pixels
         """
         self.canvas_size = canvas_size
-        self.star_sprite = self._create_star_sprite()
+        self.star_sprites = self._load_star_sprites()
 
-        logger.info(f"ImageComposer initialized (canvas: {canvas_size})")
+        logger.info(
+            f"ImageComposer initialized (canvas: {canvas_size}, "
+            f"{len(self.star_sprites)} star sprites loaded)"
+        )
 
-    def _create_star_sprite(self, size: int = 60) -> Image.Image:
+    def _load_star_sprites(self) -> list[Image.Image]:
         """
-        Create star sprite with glow effect.
+        Load all star sprites from assets folder.
 
-        Creates a simple but beautiful star sprite using concentric circles
-        for a glow effect. Tries to load custom sprite first.
+        Loads all PNG files from assets/images/star_sprites/ directory.
+        Falls back to creating a single procedural sprite if folder is empty.
+
+        Returns:
+            List of RGBA Image sprites (at least 1 sprite guaranteed)
+        """
+        sprites = []
+        sprite_pattern = "assets/images/star_sprites/*.png"
+
+        try:
+            sprite_files = sorted(glob.glob(sprite_pattern))
+
+            if not sprite_files:
+                logger.warning(
+                    f"No sprites found at {sprite_pattern}, using procedural fallback"
+                )
+                return [self._create_procedural_sprite()]
+
+            for sprite_path in sprite_files:
+                try:
+                    sprite = Image.open(sprite_path).convert("RGBA")
+                    sprites.append(sprite)
+                    logger.debug(f"Loaded sprite: {sprite_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load {sprite_path}: {e}")
+
+            if not sprites:
+                logger.warning("No valid sprites loaded, using procedural fallback")
+                return [self._create_procedural_sprite()]
+
+            logger.info(f"✓ Loaded {len(sprites)} star sprites")
+            return sprites
+
+        except Exception as e:
+            logger.error(f"Error loading sprites: {e}, using procedural fallback")
+            return [self._create_procedural_sprite()]
+
+    def _create_procedural_sprite(self, size: int = 60) -> Image.Image:
+        """
+        Create procedural star sprite with glow effect (fallback).
 
         Args:
             size: Size of sprite in pixels
@@ -57,47 +100,40 @@ class ImageComposer:
         Returns:
             RGBA Image with transparent background
         """
-        try:
-            # Try to load custom star sprite
-            sprite = Image.open("assets/star.png").convert("RGBA")
-            logger.debug("Loaded custom star sprite from assets/star.png")
-            return sprite
-        except Exception:
-            # Create procedural star sprite with glow
-            logger.debug(f"Creating procedural star sprite ({size}x{size})")
+        logger.debug(f"Creating procedural star sprite ({size}x{size})")
 
-            star = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(star)
+        star = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(star)
 
-            center = size // 2
+        center = size // 2
 
-            # Outer glow (concentric circles with decreasing alpha)
-            for i in range(6, 0, -1):
-                radius = i * 4
-                alpha = int(255 * (i / 6) * 0.2)  # Fade from 20% to 0%
-                draw.ellipse(
-                    [
-                        center - radius,
-                        center - radius,
-                        center + radius,
-                        center + radius,
-                    ],
-                    fill=(255, 255, 255, alpha),
-                )
-
-            # Bright center
+        # Outer glow (concentric circles with decreasing alpha)
+        for i in range(6, 0, -1):
+            radius = i * 4
+            alpha = int(255 * (i / 6) * 0.2)  # Fade from 20% to 0%
             draw.ellipse(
-                [center - 10, center - 10, center + 10, center + 10],
-                fill=(255, 255, 255, 255),
+                [
+                    center - radius,
+                    center - radius,
+                    center + radius,
+                    center + radius,
+                ],
+                fill=(255, 255, 255, alpha),
             )
 
-            # Small inner glow
-            draw.ellipse(
-                [center - 14, center - 14, center + 14, center + 14],
-                fill=(255, 255, 255, 200),
-            )
+        # Bright center
+        draw.ellipse(
+            [center - 10, center - 10, center + 10, center + 10],
+            fill=(255, 255, 255, 255),
+        )
 
-            return star
+        # Small inner glow
+        draw.ellipse(
+            [center - 14, center - 14, center + 14, center + 14],
+            fill=(255, 255, 255, 200),
+        )
+
+        return star
 
     def compose(
         self,
@@ -162,19 +198,22 @@ class ImageComposer:
         result = Image.alpha_composite(result, line_layer)
         logger.debug(f"Layer 2: Drew {len(connections)} connection lines")
 
-        # Layer 3: Stars
+        # Layer 3: Stars (random sprite per star)
         star_layer = Image.new("RGBA", self.canvas_size, (0, 0, 0, 0))
 
         for i, (x, y) in enumerate(star_positions):
+            # Choose random sprite for this star
+            sprite = random.choice(self.star_sprites)
+
             # Center sprite on position
-            offset_x = x - self.star_sprite.width // 2
-            offset_y = y - self.star_sprite.height // 2
+            offset_x = x - sprite.width // 2
+            offset_y = y - sprite.height // 2
 
             # Paste star with alpha channel
-            star_layer.paste(self.star_sprite, (offset_x, offset_y), self.star_sprite)
+            star_layer.paste(sprite, (offset_x, offset_y), sprite)
 
         result = Image.alpha_composite(result, star_layer)
-        logger.debug(f"Layer 3: Placed {len(star_positions)} stars")
+        logger.debug(f"Layer 3: Placed {len(star_positions)} stars (random sprites)")
 
         logger.info("✓ Constellation composition complete")
 
