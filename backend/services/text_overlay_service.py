@@ -220,7 +220,23 @@ class TextOverlayService:
         # Track occupied regions by labels
         occupied_boxes: list[Tuple[int, int, int, int]] = []
 
+        # Sort mappings by number of connections (descending)
+        # Stars with more connections (more constrained) are placed first
+        indexed_mappings = []
         for idx, mapping in enumerate(mappings):
+            # Count connections for this star
+            conn_count = len([c for c in connections if idx in c])
+            indexed_mappings.append((idx, mapping, conn_count))
+
+        # Sort by connection count descending (most constrained first)
+        indexed_mappings.sort(key=lambda x: x[2], reverse=True)
+
+        logger.debug(
+            f"Placement order: {[(i, m.tech.name, c) for i, m, c in indexed_mappings]}"
+        )
+
+        # Place labels in sorted order
+        for original_idx, mapping, conn_count in indexed_mappings:
             star = mapping.star
             tech_name = mapping.tech.name
 
@@ -233,7 +249,7 @@ class TextOverlayService:
                 occupied_boxes,
                 image.size,
                 all_star_positions,
-                idx,  # Star index for connection lookup
+                original_idx,  # Use original index for connection lookup
                 connections,
                 star_positions,
                 title,
@@ -381,67 +397,73 @@ class TextOverlayService:
         label_width = bbox[2] - bbox[0]
         label_height = bbox[3] - bbox[1]
 
-        # Helper function to calculate position with octant-aware distance correction
+        # Helper function to calculate position placing label center in gap direction
         def calculate_position_for_angle(angle: float) -> Tuple[int, int]:
             """
-            Calculate label position ensuring closest edge is at MIN_DISTANCE_FROM_STAR.
+            Calculate label position with center in direction of angle.
 
-            Uses 8 octants to determine which edge/corner is closest to star,
-            then adjusts position so that point is exactly at desired distance.
+            Ensures:
+            1. Label CENTER is placed in the direction of the angle (middle of largest gap)
+            2. Closest edge/corner is still at MIN_DISTANCE_FROM_STAR (60px)
+
+            Algorithm:
+            1. Determine octant to know which edge/corner is closest
+            2. Calculate distance to center based on octant
+            3. Place center at that distance in direction of angle
+            4. Convert center position to top-left corner (Pillow anchor)
 
             Args:
-                angle: Angle in radians
+                angle: Angle in radians (direction of largest gap)
 
             Returns:
                 (x, y) position for label top-left corner (Pillow anchor)
             """
             # Normalize angle to [0, 2π)
             angle_norm = angle % (2 * math.pi)
-
-            # Determine octant and calculate offsets
-            # Each octant is 45° (π/4 radians)
             pi = math.pi
 
+            # Determine octant and calculate distance to center
+            # Formula: distance_to_center = MIN_DISTANCE + distance_from_center_to_closest_edge
             if angle_norm < pi / 8 or angle_norm >= 15 * pi / 8:
                 # Octant 0 (0° ±22.5°) - Right: left edge closest
-                offset_x = 0
-                offset_y = -label_height / 2
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_width / 2
             elif angle_norm < 3 * pi / 8:
-                # Octant 1 (45° ±22.5°) - Diagonal upper-right: bottom-left corner closest
-                offset_x = 0
-                offset_y = -label_height
+                # Octant 1 (45° ±22.5°) - Diagonal: bottom-left corner closest
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
+                    label_width / 2, label_height / 2
+                )
             elif angle_norm < 5 * pi / 8:
                 # Octant 2 (90° ±22.5°) - Top: bottom edge closest
-                offset_x = -label_width / 2
-                offset_y = -label_height
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_height / 2
             elif angle_norm < 7 * pi / 8:
-                # Octant 3 (135° ±22.5°) - Diagonal upper-left: bottom-right corner closest
-                offset_x = -label_width
-                offset_y = -label_height
+                # Octant 3 (135° ±22.5°) - Diagonal: bottom-right corner closest
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
+                    label_width / 2, label_height / 2
+                )
             elif angle_norm < 9 * pi / 8:
                 # Octant 4 (180° ±22.5°) - Left: right edge closest
-                offset_x = -label_width
-                offset_y = -label_height / 2
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_width / 2
             elif angle_norm < 11 * pi / 8:
-                # Octant 5 (225° ±22.5°) - Diagonal lower-left: top-right corner closest
-                offset_x = -label_width
-                offset_y = 0
+                # Octant 5 (225° ±22.5°) - Diagonal: top-right corner closest
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
+                    label_width / 2, label_height / 2
+                )
             elif angle_norm < 13 * pi / 8:
                 # Octant 6 (270° ±22.5°) - Bottom: top edge closest
-                offset_x = -label_width / 2
-                offset_y = 0
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_height / 2
             else:  # angle_norm < 15 * pi / 8
-                # Octant 7 (315° ±22.5°) - Diagonal lower-right: top-left corner closest
-                offset_x = 0
-                offset_y = 0
+                # Octant 7 (315° ±22.5°) - Diagonal: top-left corner closest
+                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
+                    label_width / 2, label_height / 2
+                )
 
-            # Calculate position of closest edge/corner at MIN_DISTANCE_FROM_STAR
-            edge_x = star_x + self.MIN_DISTANCE_FROM_STAR * math.cos(angle)
-            edge_y = star_y + self.MIN_DISTANCE_FROM_STAR * math.sin(angle)
+            # Place label CENTER at calculated distance in direction of angle
+            center_x = star_x + distance_to_center * math.cos(angle)
+            center_y = star_y + distance_to_center * math.sin(angle)
 
-            # Calculate top-left corner position (Pillow anchor point)
-            x = int(edge_x + offset_x)
-            y = int(edge_y + offset_y)
+            # Convert center position to top-left corner (Pillow anchor point)
+            x = int(center_x - label_width / 2)
+            y = int(center_y - label_height / 2)
 
             return (x, y)
 
@@ -1014,7 +1036,9 @@ class TextOverlayService:
         star_positions: list[Tuple[int, int]],
     ) -> bool:
         """
-        Check if label box intersects any constellation connection lines.
+        Check if label box intersects or is too close to constellation lines.
+
+        Adds a safety margin of 15px around the label to ensure visual clearance.
 
         Args:
             label_box: Label bounding box (x1, y1, x2, y2)
@@ -1022,8 +1046,17 @@ class TextOverlayService:
             star_positions: List of (x, y) positions for each star
 
         Returns:
-            True if label intersects any connection line
+            True if label intersects or is within 15px of any connection line
         """
+        # Add safety margin around label box
+        SAFETY_MARGIN = 15
+        expanded_box = (
+            label_box[0] - SAFETY_MARGIN,
+            label_box[1] - SAFETY_MARGIN,
+            label_box[2] + SAFETY_MARGIN,
+            label_box[3] + SAFETY_MARGIN,
+        )
+
         for conn in connections:
             idx1, idx2 = conn
 
@@ -1031,8 +1064,8 @@ class TextOverlayService:
             p1 = star_positions[idx1]
             p2 = star_positions[idx2]
 
-            # Check if line segment intersects label box
-            if self._line_rectangle_intersect(p1, p2, label_box):
+            # Check if line segment intersects expanded label box
+            if self._line_rectangle_intersect(p1, p2, expanded_box):
                 return True
 
         return False
