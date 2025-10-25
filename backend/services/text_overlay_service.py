@@ -522,14 +522,14 @@ class TextOverlayService:
         """
         Calculate optimal angle for label based on constellation topology.
 
-        Analyzes the connection lines from this star and finds the optimal position
-        by placing the label opposite to the arc center of connected lines.
+        Analyzes the connection lines from this star and finds the largest angular gap
+        (empty space) between connections. Places the label in the middle of this gap.
 
         Algorithm:
         1. Find all connections for this star
         2. Calculate angle of each connected line
-        3. Find center of arc formed by these angles
-        4. Return opposite angle (+180°)
+        3. Sort angles and find largest gap between consecutive angles
+        4. Return angle in middle of largest gap
 
         Args:
             star_idx: Index of current star in star_positions list
@@ -538,12 +538,12 @@ class TextOverlayService:
             star_positions: List of all star (x, y) positions
 
         Returns:
-            Optimal angle in radians (opposite to connection arc center)
+            Optimal angle in radians (middle of largest gap between connections)
 
         Example:
-            If star has connections at 90° and 180°:
-            - Arc center = 135°
-            - Optimal angle = 135° + 180° = 315°
+            If star has connections at 45°, 60°, and 90°:
+            - Largest gap: between 90° and 45° (wrapping around) = 315° gap
+            - Optimal angle: 90° + 315°/2 = ~247° (middle of gap)
         """
         # Find all connections for this star
         star_connections = [
@@ -569,15 +569,37 @@ class TextOverlayService:
             angle = math.atan2(other_y - star_y, other_x - star_x)
             connected_angles.append(angle)
 
-        # Calculate center of arc (average of all connection angles)
-        arc_center = sum(connected_angles) / len(connected_angles)
+        # Sort angles to find gaps between connections
+        connected_angles.sort()
 
-        # Return opposite angle (+180° or +π radians)
-        optimal_angle = (arc_center + math.pi) % (2 * math.pi)
+        # Find largest gap between consecutive connection angles
+        # This gives us the widest "empty space" where we should place the label
+        max_gap = 0.0
+        optimal_angle = 0.0
+
+        for i in range(len(connected_angles)):
+            current = connected_angles[i]
+            next_angle = connected_angles[(i + 1) % len(connected_angles)]
+
+            # Calculate gap between this angle and next (wrapping around)
+            # Handle wraparound from π to -π
+            if i == len(connected_angles) - 1:
+                # Last angle wraps to first angle
+                gap = (2 * math.pi - current) + (next_angle + math.pi)
+            else:
+                gap = next_angle - current
+
+            if gap > max_gap:
+                max_gap = gap
+                # Place label in middle of largest gap
+                optimal_angle = current + gap / 2
+
+        # Normalize to [0, 2π)
+        optimal_angle = optimal_angle % (2 * math.pi)
 
         logger.debug(
             f"Star {star_idx}: {len(connected_angles)} connections, "
-            f"arc center={math.degrees(arc_center):.0f}°, "
+            f"largest gap={math.degrees(max_gap):.0f}°, "
             f"optimal={math.degrees(optimal_angle):.0f}°"
         )
 
