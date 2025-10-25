@@ -96,7 +96,7 @@ class TextOverlayService:
         result = self.add_title(result, title)
 
         # Add technology labels with topology-aware positioning
-        result = self.add_tech_labels(result, mappings, connections, star_positions)
+        result = self.add_tech_labels(result, mappings, connections, star_positions, title)
 
         # Add watermark
         result = self.add_watermark(result)
@@ -194,18 +194,20 @@ class TextOverlayService:
         mappings: list[StarTechMapping],
         connections: list[Tuple[int, int]],
         star_positions: list[Tuple[int, int]],
+        title: str,
     ) -> Image.Image:
         """
         Add technology labels with topology-aware positioning.
 
         Uses constellation topology (connection lines) to place labels in optimal positions
-        away from the constellation structure.
+        away from the constellation structure. Avoids title, watermark, and constellation lines.
 
         Args:
             image: Base image
             mappings: Star-technology mappings
             connections: List of (star_idx1, star_idx2) defining constellation lines
             star_positions: List of (x, y) positions for each star
+            title: Constellation title (for forbidden zone calculation)
 
         Returns:
             Image with labels
@@ -234,6 +236,7 @@ class TextOverlayService:
                 idx,  # Star index for connection lookup
                 connections,
                 star_positions,
+                title,
             )
 
             if position is None:
@@ -336,14 +339,20 @@ class TextOverlayService:
         star_idx: int,
         connections: list[Tuple[int, int]],
         star_positions: list[Tuple[int, int]],
+        title: str,
     ) -> Tuple[int, int] | None:
         """
         Find best position for label using topology-aware angle calculation.
 
         Algorithm:
         1. Calculate optimal angle based on constellation connections
-        2. Adjust position based on label width (align end at MIN_DISTANCE_FROM_STAR)
-        3. Try position, checking collisions with labels and other stars
+        2. Calculate position with octant-aware distance correction
+        3. Try position, checking collisions with:
+           - Other labels
+           - Other stars
+           - Title zone
+           - Watermark zone
+           - Constellation lines
         4. If collision, try alternative positions with angular offsets
         5. Return first valid position or None
 
@@ -357,6 +366,7 @@ class TextOverlayService:
             star_idx: Index of this star for connection lookup
             connections: List of constellation connections
             star_positions: List of all star positions
+            title: Constellation title (for forbidden zone calculation)
 
         Returns:
             (x, y) position or None if no valid position found
@@ -366,32 +376,83 @@ class TextOverlayService:
             star_idx, star_x, star_y, connections, star_positions
         )
 
-        # Calculate label width
+        # Calculate label dimensions
         bbox = draw.textbbox((0, 0), text, font=self.label_font)
         label_width = bbox[2] - bbox[0]
+        label_height = bbox[3] - bbox[1]
 
-        # Adjust distance based on angle to align label end at MIN_DISTANCE_FROM_STAR
-        # If angle in quadrants 3-4 (180° to 360°), label extends left
-        if math.pi < optimal_angle < 2 * math.pi:
-            # Label goes left, so add label width to ensure end is at 60px
-            distance_from_star = self.MIN_DISTANCE_FROM_STAR + label_width
-        else:
-            # Label goes right, normal distance
-            distance_from_star = self.MIN_DISTANCE_FROM_STAR
+        # Helper function to calculate position with octant-aware distance correction
+        def calculate_position_for_angle(angle: float) -> Tuple[int, int]:
+            """
+            Calculate label position ensuring closest edge is at MIN_DISTANCE_FROM_STAR.
 
-        # Calculate primary position
-        primary_x = star_x + int(distance_from_star * math.cos(optimal_angle))
-        primary_y = star_y + int(distance_from_star * math.sin(optimal_angle))
+            Uses 8 octants to determine which edge/corner is closest to star,
+            then adjusts position so that point is exactly at desired distance.
 
-        # Try primary position first, then alternatives with angular offsets
+            Args:
+                angle: Angle in radians
+
+            Returns:
+                (x, y) position for label top-left corner (Pillow anchor)
+            """
+            # Normalize angle to [0, 2π)
+            angle_norm = angle % (2 * math.pi)
+
+            # Determine octant and calculate offsets
+            # Each octant is 45° (π/4 radians)
+            pi = math.pi
+
+            if angle_norm < pi / 8 or angle_norm >= 15 * pi / 8:
+                # Octant 0 (0° ±22.5°) - Right: left edge closest
+                offset_x = 0
+                offset_y = -label_height / 2
+            elif angle_norm < 3 * pi / 8:
+                # Octant 1 (45° ±22.5°) - Diagonal upper-right: bottom-left corner closest
+                offset_x = 0
+                offset_y = -label_height
+            elif angle_norm < 5 * pi / 8:
+                # Octant 2 (90° ±22.5°) - Top: bottom edge closest
+                offset_x = -label_width / 2
+                offset_y = -label_height
+            elif angle_norm < 7 * pi / 8:
+                # Octant 3 (135° ±22.5°) - Diagonal upper-left: bottom-right corner closest
+                offset_x = -label_width
+                offset_y = -label_height
+            elif angle_norm < 9 * pi / 8:
+                # Octant 4 (180° ±22.5°) - Left: right edge closest
+                offset_x = -label_width
+                offset_y = -label_height / 2
+            elif angle_norm < 11 * pi / 8:
+                # Octant 5 (225° ±22.5°) - Diagonal lower-left: top-right corner closest
+                offset_x = -label_width
+                offset_y = 0
+            elif angle_norm < 13 * pi / 8:
+                # Octant 6 (270° ±22.5°) - Bottom: top edge closest
+                offset_x = -label_width / 2
+                offset_y = 0
+            else:  # angle_norm < 15 * pi / 8
+                # Octant 7 (315° ±22.5°) - Diagonal lower-right: top-left corner closest
+                offset_x = 0
+                offset_y = 0
+
+            # Calculate position of closest edge/corner at MIN_DISTANCE_FROM_STAR
+            edge_x = star_x + self.MIN_DISTANCE_FROM_STAR * math.cos(angle)
+            edge_y = star_y + self.MIN_DISTANCE_FROM_STAR * math.sin(angle)
+
+            # Calculate top-left corner position (Pillow anchor point)
+            x = int(edge_x + offset_x)
+            y = int(edge_y + offset_y)
+
+            return (x, y)
+
+        # Try primary angle first, then alternatives with angular offsets
         angle_offsets = [0, 15, -15, 30, -30, 45, -45, 60]  # In degrees
         candidate_positions = []
         for offset_deg in angle_offsets:
             offset_rad = math.radians(offset_deg)
             angle = optimal_angle + offset_rad
-            x = star_x + int(distance_from_star * math.cos(angle))
-            y = star_y + int(distance_from_star * math.sin(angle))
-            candidate_positions.append((x, y))
+            position = calculate_position_for_angle(angle)
+            candidate_positions.append(position)
 
         # Try each candidate position
         for x, y in candidate_positions:
@@ -421,6 +482,22 @@ class TextOverlayService:
             # Check proximity to other stars (avoid placing between stars)
             if self._too_close_to_other_stars(
                 test_box, star_x, star_y, all_stars
+            ):
+                continue
+
+            # Check collision with title zone
+            title_zone = self._get_title_zone(image_size, title)
+            if self._boxes_overlap(test_box, [title_zone]):
+                continue
+
+            # Check collision with watermark zone
+            watermark_zone = self._get_watermark_zone(image_size)
+            if self._boxes_overlap(test_box, [watermark_zone]):
+                continue
+
+            # Check collision with constellation lines
+            if self._intersects_constellation_lines(
+                test_box, connections, star_positions
             ):
                 continue
 
@@ -747,3 +824,193 @@ class TextOverlayService:
 
         logger.debug(f"Added visible watermark: {text}")
         return result
+
+    def _get_title_zone(
+        self, image_size: Tuple[int, int], title: str
+    ) -> Tuple[int, int, int, int]:
+        """
+        Calculate forbidden zone for title (top center).
+
+        Uses same positioning logic as add_title() to compute the title bounding box.
+
+        Args:
+            image_size: Image dimensions (width, height)
+            title: Title text
+
+        Returns:
+            Tuple (x1, y1, x2, y2) representing title zone with padding
+        """
+        # Create temporary image to measure text
+        temp_img = Image.new("RGBA", image_size, (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp_img)
+        bbox = temp_draw.textbbox((0, 0), title, font=self.title_font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        # Same positioning as add_title() (line 138-139)
+        x = (image_size[0] - text_width) // 2
+        y = 60
+
+        # Add padding for glow effects and stroke (from add_title: glow offset=4, stroke=2)
+        padding = 15  # Extra safety margin for glow + stroke effects
+
+        return (
+            x - padding,
+            y - padding,
+            x + text_width + padding,
+            y + text_height + padding,
+        )
+
+    def _get_watermark_zone(
+        self, image_size: Tuple[int, int]
+    ) -> Tuple[int, int, int, int]:
+        """
+        Calculate forbidden zone for watermark (bottom-right).
+
+        Uses same positioning logic as add_watermark() to compute watermark bounding box.
+
+        Args:
+            image_size: Image dimensions (width, height)
+
+        Returns:
+            Tuple (x1, y1, x2, y2) representing watermark zone with padding
+        """
+        # Fixed text from add_watermark default
+        text = "Made with <3 by Florian RADUREAU"
+
+        # Create temporary image to measure text
+        temp_img = Image.new("RGBA", image_size, (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp_img)
+        bbox = temp_draw.textbbox((0, 0), text, font=self.watermark_font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        # Same positioning as add_watermark() (line 713-716)
+        padding = 8
+        margin = 20
+        x = image_size[0] - text_width - padding * 2 - margin
+        y = image_size[1] - text_height - padding * 2 - margin
+
+        # Background box with padding (line 719-724)
+        bg_box = (
+            x - padding,
+            y - padding,
+            x + text_width + padding,
+            y + text_height + padding,
+        )
+
+        return bg_box
+
+    def _line_rectangle_intersect(
+        self,
+        line_p1: Tuple[float, float],
+        line_p2: Tuple[float, float],
+        rect: Tuple[int, int, int, int],
+    ) -> bool:
+        """
+        Check if line segment intersects with rectangle.
+
+        Uses Cohen-Sutherland algorithm for line-rectangle intersection.
+
+        Args:
+            line_p1: Line start point (x1, y1)
+            line_p2: Line end point (x2, y2)
+            rect: Rectangle (x_min, y_min, x_max, y_max)
+
+        Returns:
+            True if line segment intersects rectangle
+
+        Reference:
+            https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm
+        """
+        x1, y1 = line_p1
+        x2, y2 = line_p2
+        x_min, y_min, x_max, y_max = rect
+
+        # Cohen-Sutherland outcodes
+        INSIDE = 0  # 0000
+        LEFT = 1    # 0001
+        RIGHT = 2   # 0010
+        BOTTOM = 4  # 0100
+        TOP = 8     # 1000
+
+        def compute_outcode(x: float, y: float) -> int:
+            """Compute outcode for point relative to rectangle."""
+            code = INSIDE
+            if x < x_min:
+                code |= LEFT
+            elif x > x_max:
+                code |= RIGHT
+            if y < y_min:
+                code |= BOTTOM
+            elif y > y_max:
+                code |= TOP
+            return code
+
+        # Compute outcodes for both endpoints
+        outcode1 = compute_outcode(x1, y1)
+        outcode2 = compute_outcode(x2, y2)
+
+        while True:
+            if outcode1 == 0 and outcode2 == 0:
+                # Both points inside rectangle
+                return True
+            elif (outcode1 & outcode2) != 0:
+                # Both points on same side outside rectangle
+                return False
+            else:
+                # Line segment needs clipping
+                # Pick point outside rectangle
+                outcode_out = outcode1 if outcode1 != 0 else outcode2
+
+                # Find intersection point
+                if outcode_out & TOP:
+                    x = x1 + (x2 - x1) * (y_max - y1) / (y2 - y1)
+                    y = y_max
+                elif outcode_out & BOTTOM:
+                    x = x1 + (x2 - x1) * (y_min - y1) / (y2 - y1)
+                    y = y_min
+                elif outcode_out & RIGHT:
+                    y = y1 + (y2 - y1) * (x_max - x1) / (x2 - x1)
+                    x = x_max
+                elif outcode_out & LEFT:
+                    y = y1 + (y2 - y1) * (x_min - x1) / (x2 - x1)
+                    x = x_min
+
+                # Update point and outcode
+                if outcode_out == outcode1:
+                    x1, y1 = x, y
+                    outcode1 = compute_outcode(x1, y1)
+                else:
+                    x2, y2 = x, y
+                    outcode2 = compute_outcode(x2, y2)
+
+    def _intersects_constellation_lines(
+        self,
+        label_box: Tuple[int, int, int, int],
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
+    ) -> bool:
+        """
+        Check if label box intersects any constellation connection lines.
+
+        Args:
+            label_box: Label bounding box (x1, y1, x2, y2)
+            connections: List of (star_idx1, star_idx2) tuples
+            star_positions: List of (x, y) positions for each star
+
+        Returns:
+            True if label intersects any connection line
+        """
+        for conn in connections:
+            idx1, idx2 = conn
+
+            # Get star positions
+            p1 = star_positions[idx1]
+            p2 = star_positions[idx2]
+
+            # Check if line segment intersects label box
+            if self._line_rectangle_intersect(p1, p2, label_box):
+                return True
+
+        return False
