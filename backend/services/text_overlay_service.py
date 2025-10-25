@@ -566,7 +566,7 @@ class TextOverlayService:
         return False
 
     def add_watermark(
-        self, image: Image.Image, text: str = "Made with ★ by Florian RADUREAU"
+        self, image: Image.Image, text: str = "Made with <3 by Florian RADUREAU"
     ) -> Image.Image:
         """
         Add visible watermark bottom-right with semi-transparent background.
@@ -574,8 +574,8 @@ class TextOverlayService:
         Features:
         - 16px SpaceMono font
         - Rounded rectangle background
-        - 90% opacity for visibility
-        - ★ (U+2605) star symbol
+        - 100% opacity - fully visible
+        - <3 heart symbol
 
         Args:
             image: Base image
@@ -619,12 +619,12 @@ class TextOverlayService:
             fill=(20, 20, 30, 200),  # Dark background
         )
 
-        # Draw text (white, 90% opacity)
+        # Draw text (white, 100% opacity - fully visible)
         overlay_draw.text(
             (x, y),
             text,
             font=self.watermark_font,
-            fill=(255, 255, 255, 230),  # Very visible
+            fill=(255, 255, 255, 255),  # Pure white, 100% opaque
         )
 
         # Composite overlay onto image
