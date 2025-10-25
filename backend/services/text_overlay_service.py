@@ -59,11 +59,11 @@ class TextOverlayService:
         label_path = self.font_dir / "SpaceMono-Regular.ttf"
         self.label_font = ImageFont.truetype(str(label_path), 18)
 
-        # Watermark font: SpaceMono-Regular 12px
+        # Watermark font: SpaceMono-Regular 16px
         watermark_path = self.font_dir / "SpaceMono-Regular.ttf"
-        self.watermark_font = ImageFont.truetype(str(watermark_path), 12)
+        self.watermark_font = ImageFont.truetype(str(watermark_path), 16)
 
-        logger.info("SpaceMono fonts loaded (Bold 34px, Regular 18px/12px)")
+        logger.info("SpaceMono fonts loaded (Bold 34px, Regular 18px/16px)")
 
     def compose(
         self,
@@ -566,31 +566,69 @@ class TextOverlayService:
         return False
 
     def add_watermark(
-        self, image: Image.Image, text: str = "Made with ⭐ by Florian RADUREAU"
+        self, image: Image.Image, text: str = "Made with ★ by Florian RADUREAU"
     ) -> Image.Image:
         """
-        Add discrete watermark bottom-right.
+        Add visible watermark bottom-right with semi-transparent background.
+
+        Features:
+        - 16px SpaceMono font
+        - Rounded rectangle background
+        - 90% opacity for visibility
+        - ★ (U+2605) star symbol
 
         Args:
             image: Base image
-            text: Watermark text (default: custom signature)
+            text: Watermark text (default: custom signature with star)
 
         Returns:
             Image with watermark
         """
-        draw = ImageDraw.Draw(image)
+        # Convert to RGBA if needed
+        if image.mode != "RGBA":
+            image = image.convert("RGBA")
 
-        # Get text size
-        bbox = draw.textbbox((0, 0), text, font=self.watermark_font)
+        # Calculate text dimensions
+        temp_draw = ImageDraw.Draw(image)
+        bbox = temp_draw.textbbox((0, 0), text, font=self.watermark_font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # Position bottom-right
-        x = image.width - text_width - 20
-        y = image.height - text_height - 20
+        # Position bottom-right with margins
+        padding = 8
+        margin = 20
+        x = image.width - text_width - padding * 2 - margin
+        y = image.height - text_height - padding * 2 - margin
 
-        # Draw with low opacity
-        draw.text((x, y), text, font=self.watermark_font, fill=(255, 255, 255, 100))
+        # Background box
+        bg_box = (
+            x - padding,
+            y - padding,
+            x + text_width + padding,
+            y + text_height + padding,
+        )
 
-        logger.debug(f"Added watermark: {text}")
-        return image
+        # Create overlay for semi-transparent background
+        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+
+        # Draw rounded rectangle background (dark gray, 78% opacity)
+        overlay_draw.rounded_rectangle(
+            bg_box,
+            radius=6,
+            fill=(20, 20, 30, 200),  # Dark background
+        )
+
+        # Draw text (white, 90% opacity)
+        overlay_draw.text(
+            (x, y),
+            text,
+            font=self.watermark_font,
+            fill=(255, 255, 255, 230),  # Very visible
+        )
+
+        # Composite overlay onto image
+        result = Image.alpha_composite(image, overlay)
+
+        logger.debug(f"Added visible watermark: {text}")
+        return result
