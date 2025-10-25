@@ -50,67 +50,20 @@ class TextOverlayService:
         logger.info("TextOverlayService initialized")
 
     def _load_fonts(self) -> None:
-        """Load fonts with fallbacks."""
-        try:
-            # Try custom fonts
-            title_font_path = self.font_dir / "Montserrat-Bold.ttf"
-            if title_font_path.exists():
-                self.title_font = ImageFont.truetype(str(title_font_path), 48)
-            else:
-                raise FileNotFoundError
+        """Load custom SpaceMono fonts from assets."""
+        # Title font: SpaceMono-Bold 34px
+        title_path = self.font_dir / "SpaceMono-Bold.ttf"
+        self.title_font = ImageFont.truetype(str(title_path), 34)
 
-            label_font_path = self.font_dir / "OpenSans-Regular.ttf"
-            if label_font_path.exists():
-                self.label_font = ImageFont.truetype(str(label_font_path), 18)
-            else:
-                raise FileNotFoundError
+        # Label font: SpaceMono-Regular 18px
+        label_path = self.font_dir / "SpaceMono-Regular.ttf"
+        self.label_font = ImageFont.truetype(str(label_path), 18)
 
-            logger.info("Custom fonts loaded successfully")
+        # Watermark font: SpaceMono-Regular 12px
+        watermark_path = self.font_dir / "SpaceMono-Regular.ttf"
+        self.watermark_font = ImageFont.truetype(str(watermark_path), 12)
 
-        except (FileNotFoundError, OSError):
-            # Fallback to system fonts
-            logger.warning("Custom fonts not found, using fallback")
-
-            try:
-                # Try DejaVu (common on Linux)
-                self.title_font = ImageFont.truetype(
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48
-                )
-
-                # Try Space Mono for labels (spatial aesthetic)
-                try:
-                    self.label_font = ImageFont.truetype(
-                        "/usr/share/fonts/truetype/space-mono/SpaceMono-Regular.ttf", 18
-                    )
-                    logger.info("Space Mono font loaded for labels (18px)")
-                except OSError:
-                    # Fallback to DejaVu Mono
-                    try:
-                        self.label_font = ImageFont.truetype(
-                            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 18
-                        )
-                        logger.info("DejaVu Mono font loaded for labels (18px)")
-                    except OSError:
-                        # Last resort: regular DejaVu
-                        self.label_font = ImageFont.truetype(
-                            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18
-                        )
-                        logger.info("DejaVu Sans font loaded for labels (18px)")
-
-                logger.info("System fonts loaded")
-            except OSError:
-                # Last resort: default font
-                self.title_font = ImageFont.load_default()
-                self.label_font = ImageFont.load_default()
-                logger.warning("Using default PIL fonts")
-
-        # Watermark font (smaller)
-        try:
-            self.watermark_font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12
-            )
-        except OSError:
-            self.watermark_font = ImageFont.load_default()
+        logger.info("SpaceMono fonts loaded (Bold 34px, Regular 18px/12px)")
 
     def compose(
         self,
@@ -168,14 +121,8 @@ class TextOverlayService:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        # Try to load appropriately-sized font for title (34px for balance)
-        try:
-            title_font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 34
-            )
-        except OSError:
-            # Fallback to current title font
-            title_font = self.title_font
+        # Use SpaceMono-Bold 34px for title
+        title_font = self.title_font
 
         # Create temporary draw to measure text
         temp_draw = ImageDraw.Draw(image)
@@ -619,14 +566,14 @@ class TextOverlayService:
         return False
 
     def add_watermark(
-        self, image: Image.Image, text: str = "constellation.tech"
+        self, image: Image.Image, text: str = "Made with ⭐ by Florian RADUREAU"
     ) -> Image.Image:
         """
         Add discrete watermark bottom-right.
 
         Args:
             image: Base image
-            text: Watermark text
+            text: Watermark text (default: custom signature)
 
         Returns:
             Image with watermark
@@ -645,5 +592,5 @@ class TextOverlayService:
         # Draw with low opacity
         draw.text((x, y), text, font=self.watermark_font, fill=(255, 255, 255, 100))
 
-        logger.debug("Added watermark")
+        logger.debug(f"Added watermark: {text}")
         return image
