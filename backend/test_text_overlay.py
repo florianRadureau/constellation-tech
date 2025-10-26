@@ -6,12 +6,19 @@ Visualise le placement des labels sur une constellation simple (noir sur blanc)
 pour faciliter le débogage sans générer toute la constellation.
 """
 
+import logging
 from PIL import Image, ImageDraw
 
 from services.star_detector import StarPosition
 from services.technology_mapper import StarTechMapping, TechData
 from services.text_overlay_service import TextOverlayService
 from utils.constellation_templates import get_constellation_template
+
+# Configure logging to show INFO level
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(name)s - %(message)s'
+)
 
 
 def main():

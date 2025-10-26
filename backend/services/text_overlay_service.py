@@ -1052,6 +1052,17 @@ class TextOverlayService:
 
             scores.append((sector_angle, score))
 
+        # Log all sector scores for debugging
+        logger.info(f"Star {star_idx} at ({star_x}, {star_y}) - Sector scores:")
+        logger.info(f"  Connections: {len(connection_angles)} at angles {[f'{math.degrees(a):.0f}°' for a in connection_angles]}")
+
+        # Display all sectors with their scores
+        for sector_angle, score in scores:
+            logger.info(f"    Sector {math.degrees(sector_angle):6.0f}°: score = {score:6.1f}")
+
         # Sort by score (best first)
         scores.sort(key=lambda x: x[1], reverse=True)
+
+        logger.info(f"  → Best sector: {math.degrees(scores[0][0]):.0f}° (score: {scores[0][1]:.1f})")
+
         return scores
