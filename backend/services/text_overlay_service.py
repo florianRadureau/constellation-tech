@@ -1,8 +1,7 @@
 """
 Text overlay service for constellation images.
 
-Adds title, technology labels, and watermark with smart collision avoidance.
-Uses intelligent angle calculation to place labels in clear zones away from other stars.
+Adds title, technology labels, and watermark with simple fixed positioning.
 """
 
 import logging
@@ -13,7 +12,6 @@ from typing import Tuple
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config import settings
-from services.star_detector import StarPosition
 from services.technology_mapper import StarTechMapping
 
 logger = logging.getLogger(__name__)
@@ -23,19 +21,12 @@ class TextOverlayService:
     """
     Add elegant text overlays to constellation images.
 
-    Handles title, technology labels (with smart collision avoidance), and watermark.
-    Uses intelligent angle calculation to place labels in zones away from other stars.
+    Handles title, technology labels (simple fixed positioning), and watermark.
 
     Example:
         >>> service = TextOverlayService()
         >>> final_image = service.compose(image, mappings, title)
     """
-
-    # Smart positioning constants
-    MIN_DISTANCE_FROM_STAR = 60  # Minimum distance from star center to label (px)
-    MIN_DISTANCE_FROM_OTHER_STARS = 40  # Minimum distance to other stars (px)
-    STAR_INFLUENCE_RADIUS = 150  # Radius in which other stars affect placement (px)
-    NUM_RADIAL_ATTEMPTS = 8  # Number of radial positions to try around optimal angle
 
     def __init__(self, font_dir: Path | None = None) -> None:
         """
@@ -353,165 +344,6 @@ class TextOverlayService:
 
         logger.debug(f"Label '{text}' placed 30px below star at ({star_x}, {star_y})")
         return (x, y)
-
-    def _calculate_angle_from_connections(
-        self,
-        star_idx: int,
-        star_x: int,
-        star_y: int,
-        connections: list[Tuple[int, int]],
-        star_positions: list[Tuple[int, int]],
-    ) -> float:
-        """
-        Calculate optimal angle for label based on constellation topology.
-
-        Analyzes the connection lines from this star and finds the largest angular gap
-        (empty space) between connections. Places the label in the middle of this gap.
-
-        Algorithm:
-        1. Find all connections for this star
-        2. Calculate angle of each connected line
-        3. Sort angles and find largest gap between consecutive angles
-        4. Return angle in middle of largest gap
-
-        Args:
-            star_idx: Index of current star in star_positions list
-            star_x, star_y: Star coordinates
-            connections: List of (star_idx1, star_idx2) tuples
-            star_positions: List of all star (x, y) positions
-
-        Returns:
-            Optimal angle in radians (middle of largest gap between connections)
-
-        Example:
-            If star has connections at 45°, 60°, and 90°:
-            - Largest gap: between 90° and 45° (wrapping around) = 315° gap
-            - Optimal angle: 90° + 315°/2 = ~247° (middle of gap)
-        """
-        # Find all connections for this star
-        star_connections = [
-            conn for conn in connections if star_idx in conn
-        ]
-
-        if not star_connections:
-            # No connections - this shouldn't happen based on user requirements
-            # But as safety fallback, place label to the right
-            logger.warning(
-                f"Star {star_idx} has no connections, using fallback angle 0°"
-            )
-            return 0.0
-
-        # Calculate angles for each connected line
-        connected_angles: list[float] = []
-        for conn in star_connections:
-            # Get the OTHER star in the connection
-            other_idx = conn[1] if conn[0] == star_idx else conn[0]
-            other_x, other_y = star_positions[other_idx]
-
-            # Calculate angle from current star to connected star
-            angle = math.atan2(other_y - star_y, other_x - star_x)
-            connected_angles.append(angle)
-
-        # Sort angles to find gaps between connections
-        connected_angles.sort()
-
-        # Find largest gap between consecutive connection angles
-        # This gives us the widest "empty space" where we should place the label
-        max_gap = 0.0
-        optimal_angle = 0.0
-
-        for i in range(len(connected_angles)):
-            current = connected_angles[i]
-            next_angle = connected_angles[(i + 1) % len(connected_angles)]
-
-            # Calculate gap between this angle and next (wrapping around)
-            # Handle wraparound from π to -π
-            if i == len(connected_angles) - 1:
-                # Last angle wraps to first angle
-                gap = (2 * math.pi - current) + (next_angle + math.pi)
-            else:
-                gap = next_angle - current
-
-            if gap > max_gap:
-                max_gap = gap
-                # Place label in middle of largest gap
-                optimal_angle = current + gap / 2
-
-        # Normalize to [0, 2π)
-        optimal_angle = optimal_angle % (2 * math.pi)
-
-        logger.debug(
-            f"Star {star_idx}: {len(connected_angles)} connections, "
-            f"largest gap={math.degrees(max_gap):.0f}°, "
-            f"optimal={math.degrees(optimal_angle):.0f}°"
-        )
-
-        return optimal_angle
-
-    def _too_close_to_other_stars(
-        self,
-        label_box: Tuple[int, int, int, int],
-        current_star_x: int,
-        current_star_y: int,
-        all_stars: list[StarPosition],
-    ) -> bool:
-        """
-        Check if label box is too close to other stars.
-
-        Prevents labels from being placed between or near other stars.
-
-        Args:
-            label_box: Label bounding box (x1, y1, x2, y2)
-            current_star_x, current_star_y: Current star coordinates (to exclude)
-            all_stars: All star positions
-
-        Returns:
-            True if label is too close to another star
-        """
-        # Calculate label center
-        label_center_x = (label_box[0] + label_box[2]) / 2
-        label_center_y = (label_box[1] + label_box[3]) / 2
-
-        for star in all_stars:
-            # Skip current star
-            if star.x == current_star_x and star.y == current_star_y:
-                continue
-
-            # Calculate distance from label center to other star
-            distance = math.hypot(
-                star.x - label_center_x, star.y - label_center_y
-            )
-
-            if distance < self.MIN_DISTANCE_FROM_OTHER_STARS:
-                logger.debug(
-                    f"Label too close to star at ({star.x}, {star.y}): "
-                    f"distance={distance:.1f}px < {self.MIN_DISTANCE_FROM_OTHER_STARS}px"
-                )
-                return True
-
-        return False
-
-    def _boxes_overlap(
-        self, box: Tuple[int, int, int, int], boxes: list[Tuple[int, int, int, int]]
-    ) -> bool:
-        """
-        Check if box overlaps with any box in list.
-
-        Args:
-            box: (x1, y1, x2, y2) to test
-            boxes: List of boxes to check against
-
-        Returns:
-            True if overlap detected
-        """
-        x1, y1, x2, y2 = box
-
-        for bx1, by1, bx2, by2 in boxes:
-            # Check overlap
-            if not (x2 < bx1 or x1 > bx2 or y2 < by1 or y1 > by2):
-                return True
-
-        return False
 
     def add_watermark(
         self, image: Image.Image, text: str = "Made with <3 by Florian RADUREAU"
