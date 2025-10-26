@@ -215,7 +215,7 @@ def get_all_keywords() -> list[str]:
     Returns:
         Liste de tous les mots-clés des technologies
     """
-    all_keywords = []
+    all_keywords: list[str] = []
     for category in TECH_CATEGORIES.values():
         all_keywords.extend(category["keywords"])
     return all_keywords
@@ -248,7 +248,8 @@ def get_color_for_category(category: str) -> str:
     Returns:
         Code couleur hexadécimal
     """
-    return TECH_CATEGORIES.get(category, TECH_CATEGORIES["Other"])["color"]
+    category_data = TECH_CATEGORIES.get(category, TECH_CATEGORIES["Other"])
+    return category_data["color"]
 
 
 def get_color_for_tech(tech_name: str) -> str:

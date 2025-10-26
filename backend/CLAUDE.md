@@ -55,13 +55,13 @@ backend/
 
 ```
 [1] CVParser          → Extraction texte (PDF/DOCX)
-[2] TechAnalyzer      → Détection 355+ technologies + scoring
-[3] TitleGenerator    → Titre constellation inventée
+[2] TechAnalyzer      → Détection 355+ technologies + scoring + Fullstack detection
+[3] TitleGenerator    → Titre constellation inventée (9 catégories + Fullstack)
 [4] PromptGenerator   → Prompt ultra-simple pour Imagen
 [5] ImageGenerator    → Génération constellation (Vertex AI)
 [6] StarDetector      → Détection étoiles via analyse des lignes
 [7] TechnologyMapper  → Mapping étoiles ↔ technologies
-[8] TextOverlay       → Annotations avec placement intelligent par angles
+[8] TextOverlay       → Annotations avec placement fixe simple (30px)
 [9] StorageService    → Upload GCS + URL signée
 [10] ConstellationResult → Retour final
 ```
@@ -158,12 +158,12 @@ def compose(self, image, mappings, title):
     return result
 ```
 
-**Design spatial premium (2025-10-24):**
+**Design spatial premium (v1.0.0):**
 - Titre: 34px avec subtil effet de lueur
 - Labels: 18px avec police Space Mono (esthétique spatiale)
-- Placement intelligent par angles: analyse des étoiles voisines pour trouver la direction optimale
+- Placement simple et élégant: fixe 30px en-dessous de chaque étoile
 - Design sobre: fond gris foncé, pas de bordures colorées (trop amateur)
-- Distances augmentées: 60px des étoiles, 40px entre labels pour éviter collisions
+- Simplicité > Complexité: approche minimaliste et prédictible
 
 ---
 
@@ -261,91 +261,134 @@ Si `detect_from_constellation_lines()` échoue (pas de lignes détectées):
 
 **Idée clé :** Pour chaque étoile, analyser la position de toutes les étoiles voisines dans un rayon de 150px, calculer les angles vers chaque voisin, puis trouver la plus grande "zone vide" (gap angulaire) pour placer le label.
 
-### Algorithme `_calculate_smart_angle()`
+### Algorithme Simple et Prévisible
+
+**Approche actuelle (v1.0.0) :** Placement fixe ultra-simple
 
 ```python
-def _calculate_smart_angle(
-    self, star_x: int, star_y: int, all_stars: list[StarPosition]
-) -> float:
+def _find_label_position(
+    self,
+    draw: ImageDraw.ImageDraw,
+    star_x: int,
+    star_y: int,
+    text: str,
+    image_size: tuple[int, int],
+) -> tuple[int, int] | None:
     """
-    1. COLLECTE DES ANGLES
-       Pour chaque étoile voisine dans rayon 150px:
-       - Calculer dx = other_x - star_x
-       - Calculer dy = other_y - star_y
-       - Calculer angle = atan2(dy, dx)
+    Place label 30px below star (simple fixed placement).
 
-    2. TRI DES ANGLES
-       - Trier angles de -π à +π
-
-    3. RECHERCHE DU PLUS GRAND GAP
-       - Pour chaque paire d'angles consécutifs:
-         * Calculer gap angulaire
-         * Garder le gap maximal
-       - Retourner angle au milieu du plus grand gap
-
-    Résultat: Angle optimal (radians) pointant vers la zone la plus dégagée
+    Algorithme:
+    1. Calculer dimensions du label
+    2. Placer le centre du label à 30px en-dessous du centre de l'étoile
+    3. Vérifier que le label reste dans les limites de l'image
+    4. Retourner position ou None si hors limites
     """
 ```
 
-### Placement Radial avec Vérifications
-
-```python
-def _generate_radial_positions(
-    self, star_x: int, star_y: int, optimal_angle: float
-) -> list[Tuple[int, int]]:
-    """
-    Génère 8 positions candidates autour de l'étoile:
-    - Position principale: optimal_angle à 60px
-    - 7 positions alternatives: ±22.5°, ±45°, ±67.5° à 60px
-
-    Pour chaque position:
-    1. Vérifier distance minimale de l'étoile (≥60px) ✓
-    2. Vérifier pas trop proche d'autres étoiles (≥40px)
-    3. Vérifier dans les limites de l'image
-
-    Retourne la première position valide
-    """
-```
-
-### Constantes de Placement
+### Constante de Placement
 
 | Constante | Valeur | Raison |
 |-----------|--------|--------|
-| `STAR_INFLUENCE_RADIUS` | 150px | Rayon pour analyser étoiles voisines |
-| `MIN_DISTANCE_FROM_STAR` | 60px | Distance label ↔ étoile (lisibilité) |
-| `MIN_DISTANCE_FROM_OTHER_STARS` | 40px | Distance label ↔ autres étoiles (évite confusion) |
-| `NUM_RADIAL_ATTEMPTS` | 8 | Nombre de positions candidates à tester |
+| `FIXED_DISTANCE` | 30px | Distance fixe label ↔ étoile (simple et uniforme) |
 
 ### Avantages
 
-✅ **Placement optimal** - Labels dans zones dégagées
-✅ **Pas de confusion** - Labels loin des autres étoiles
-✅ **Lisibilité** - Distance suffisante (60px au lieu de 30px)
-✅ **Robustesse** - 8 positions fallback si angle optimal échoue
+✅ **Ultra-simple** - 2 lignes de logique
+✅ **Prévisible** - Toujours au même endroit
+✅ **Performance** - Aucun calcul complexe
+✅ **Maintenable** - Code minimal (796 lignes vs 1068)
 
 ### Visualisation du Concept
 
 ```
-        Étoile A
-           *
-      Label C
-
-  Étoile B              Étoile D
-      *      ⭐ TARGET      *
-
-              [ZONE VIDE]
-                  ↓
-              Label TARGET
+        ⭐ Étoile
+           |
+          30px
+           |
+           ↓
+      [Label Techno]
 ```
 
-L'algorithme place "Label TARGET" dans la zone vide en bas, loin des étoiles voisines A, B, D.
+Tous les labels sont placés systématiquement 30px en-dessous de leur étoile.
 
 ### Code Références
 
-- `services/text_overlay_service.py:227` - `_calculate_smart_angle()`
-- `services/text_overlay_service.py:280` - `_generate_radial_positions()`
-- `services/text_overlay_service.py:317` - `_too_close_to_other_stars()`
-- `services/text_overlay_service.py:343` - `_find_label_position()` (orchestration)
+- `services/text_overlay_service.py:302` - `_find_label_position()` (placement simple)
+
+---
+
+## 🎯 Innovation Technique: Fullstack Detection
+
+### Problématique Résolue
+
+**Problème initial :** Un CV contenant des technologies Front + Back + Database + DevOps était catégorisé comme "Frontend" simplement parce que c'était la catégorie avec le plus de technologies détectées.
+
+**Impact :** Profils polyvalents mal représentés, titres de constellation inappropriés.
+
+### Solution: Early Return sur Diversité de Catégories
+
+**Idée clé :** Un développeur Fullstack se caractérise par la **diversité** des catégories maîtrisées, pas par la quantité dans une seule catégorie.
+
+### Algorithme Simple
+
+```python
+def _compute_stats(self, tech_details: List[Dict]) -> Dict:
+    """
+    Compute profile statistics with Fullstack detection.
+
+    Logic:
+    1. Count technologies by category
+    2. EARLY RETURN: If ≥3 different categories → "Fullstack"
+    3. Otherwise: Return most represented category
+    """
+    categories = [tech["category"] for tech in tech_details]
+    category_counts = Counter(categories)
+
+    # Early return : Si au moins 3 catégories différentes → Fullstack
+    if len(category_counts) >= 3:
+        dominant_category = "Fullstack"
+    else:
+        # Catégorie dominante (la plus représentée)
+        dominant_category = category_counts.most_common(1)[0][0]
+```
+
+### Seuil de Détection
+
+| Paramètre | Valeur | Raison |
+|-----------|--------|--------|
+| `MIN_CATEGORIES_FOR_FULLSTACK` | 3 | Diversité minimale pour être considéré Fullstack |
+
+**Exemples :**
+- Frontend + Backend + Database = Fullstack ✅
+- Frontend + Backend = "Backend" (most common) ❌
+- Frontend only = "Frontend" ❌
+
+### Métaphores Fullstack
+
+Le TitleGenerator a été enrichi avec 6 titres spécifiques au profil Fullstack :
+
+```python
+"Fullstack": [
+    "L'Architecte des Deux Mondes",
+    "La Constellation Complète",
+    "Le Pont Entre les Étoiles",
+    "L'Équilibre Parfait du Code",
+    "La Symphonie Full-Stack",
+    "Le Tisseur d'Architectures",
+]
+```
+
+### Avantages
+
+✅ **Simple** - Early return en 3 lignes
+✅ **Précis** - Détecte la polyvalence
+✅ **Intuitif** - Logique alignée avec la définition métier
+✅ **Complet** - Titres dédiés pour Fullstack
+
+### Code Références
+
+- `services/tech_analyzer.py:199` - Early return Fullstack
+- `services/title_generator.py:31` - Métaphores Fullstack
 
 ---
 
@@ -793,7 +836,7 @@ print(gen.get_quota_status())
 - Pas de bordures colorées (aspect amateur)
 - Labels 18px lisibles avec Space Mono (esthétique spatiale)
 - Titre 34px proportionné avec subtil effet de lueur
-- Placement intelligent par analyse d'angles
+- Placement fixe simple: 30px en-dessous de chaque étoile
 ```
 
 **Résultats :**
@@ -821,6 +864,58 @@ print(gen.get_quota_status())
 → Résultat: Halos magnifiques, lignes fines et élégantes
 
 **Leçon :** Contre-intuitivement, demander des effets "faint" (faibles) peut produire des résultats plus marqués. Il faut parfois être plus explicite/fort dans le langage pour obtenir des résultats visuels subtils avec les modèles génératifs.
+
+### Gestion des Dépendances - Standard Moderne
+
+**❌ Approche Initiale (Obsolète):**
+```
+requirements.txt - Liste simple des dépendances
+    ↓
+pip install -r requirements.txt
+```
+
+**✅ Approche Moderne (PEP 621):**
+```
+pyproject.toml - Configuration projet complète
+    ↓
+pip install -e .         # Mode développement
+pip install -e ".[dev]"  # Avec outils dev
+```
+
+**Avantages pyproject.toml :**
+- ✅ **Standard moderne** - PEP 621 (2020)
+- ✅ **Métadonnées centralisées** - Version, auteur, licence, URLs
+- ✅ **Séparation dev/prod** - Optional dependencies pour tests, linting
+- ✅ **Configuration outils** - black, mypy, pytest dans même fichier
+- ✅ **Editable install** - Import direct depuis n'importe où
+
+**Structure pyproject.toml :**
+```toml
+[project]
+name = "constellation-tech"
+version = "1.0.0"
+dependencies = ["fastapi==0.115.0", "pillow==10.4.0", ...]
+
+[project.optional-dependencies]
+dev = ["pytest==7.4.3", "black==24.1.1", "mypy==1.8.0", ...]
+
+[tool.setuptools]
+packages = ["services", "models", "routers", "utils", "exceptions"]
+
+[tool.black]
+line-length = 100
+
+[tool.mypy]
+strict = true
+```
+
+**Migration (v1.0.0) :**
+- ❌ Suppression requirements.txt (redondant)
+- ✅ Migration complète vers pyproject.toml
+- ✅ Configuration setuptools pour package discovery
+- ✅ Séparation claire dev/prod dependencies
+
+**Leçon :** Un seul fichier de configuration moderne vaut mieux que plusieurs fichiers obsolètes dispersés.
 
 ---
 
@@ -1041,28 +1136,29 @@ Ce projet démontre :
 
 ## 📜 Historique des Modifications Majeures
 
-### v1.1.0 - 2025-10-24 - Innovations Visuelles & Algorithmiques
+### v1.0.0 - 2025-10-26 - Release Publique
 
-**Améliorations majeures :**
-- 🔬 **StarDetector line-based** - Détection révolutionnaire via Hough Transform au lieu de simple seuillage
-- 🎯 **Smart label placement** - Placement intelligent par analyse d'angles au lieu de positions fixes
-- 🎨 **Design spatial premium** - 34px titre, 18px labels Space Mono, sans bordures colorées
-- ✨ **Qualité LinkedIn-shareable** - Design sobre et professionnel
+**Nettoyage majeur et professionnalisation :**
+- 🧹 **Code cleanup** - Suppression 272 lignes de code mort (25% réduction)
+- 🎯 **Label placement simplifié** - Fixed 30px placement (ultra-simple et prévisible)
+- 🤖 **Détection Fullstack** - Early return si ≥3 catégories présentes
+- 📦 **Migration pyproject.toml** - Standard moderne PEP 621, suppression requirements.txt
+
+**Changements techniques :**
+- Simplification text_overlay_service.py : 1068 → 796 lignes (-25%)
+- Suppression 11 méthodes obsolètes (sector scoring, collision detection, etc.)
+- Ajout catégorie "Fullstack" avec 6 métaphores spatiales
+- Migration complète vers pyproject.toml avec groupes de dépendances
 
 **Commits clés :**
-- `Fix: Prompt original + Filtrage lignes longues uniquement`
-- `Détection robuste via lignes + Design sobre et élégant`
-- `Améliorations visuelles majeures - Design spatial premium`
+- `Nettoyage: Simplification placement labels à 30px fixe`
+- `Nettoyage complet: Suppression code mort text_overlay_service.py`
+- `Feature: Détection automatique profil Fullstack`
+- `Modernisation: Migration vers pyproject.toml (PEP 621)`
 
-### v1.0.0 - 2025-10-23 - Release Initiale
-
-**Features :**
-- Pipeline complet 10 services
-- Tests >80% couverture
-- API FastAPI production-ready
 
 ---
 
-*Dernière mise à jour: 2025-10-24*
-*Version: 1.1.0*
+*Dernière mise à jour: 2025-10-26*
+*Version: 1.0.0*
 *Auteur: Développé avec ❤️ et qualité*

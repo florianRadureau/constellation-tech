@@ -5,7 +5,7 @@ Détecte les technologies mentionnées dans un CV et calcule des scores
 basés sur la fréquence d'apparition.
 """
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 from collections import Counter
 from utils.tech_dictionary import (
     get_all_keywords,
@@ -22,11 +22,11 @@ class TechAnalyzer:
     et calcule des scores basés sur la fréquence.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialise l'analyseur avec le dictionnaire de technologies."""
         self.known_techs = get_all_keywords()
 
-    def analyze(self, cv_text: str) -> Dict:
+    def analyze(self, cv_text: str) -> Dict[str, Any]:
         """
         Analyse le CV et retourne les technologies trouvées.
 
@@ -72,7 +72,7 @@ class TechAnalyzer:
             "total_techs_found": len(tech_details)
         }
 
-    def _count_tech_occurrences(self, text: str) -> Counter:
+    def _count_tech_occurrences(self, text: str) -> Counter[str]:
         """
         Compte les occurrences de chaque technologie dans le texte.
 
@@ -102,7 +102,7 @@ class TechAnalyzer:
 
         return tech_counter
 
-    def _enrich_tech_data(self, tech_counts: Counter) -> List[Dict]:
+    def _enrich_tech_data(self, tech_counts: Counter[str]) -> List[Dict[str, Any]]:
         """
         Enrichit les données brutes avec catégorie, couleur, score normalisé.
 
@@ -169,7 +169,7 @@ class TechAnalyzer:
         else:
             return "tiny"
 
-    def _compute_stats(self, tech_details: List[Dict]) -> Dict:
+    def _compute_stats(self, tech_details: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Calcule des statistiques globales sur le profil.
 
