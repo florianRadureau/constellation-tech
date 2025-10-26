@@ -1,0 +1,33 @@
+====================================
+PLACEHOLDER - constellation-hero-bg.png
+====================================
+
+Ce fichier est un placeholder.
+
+ACTIONS REQUISES :
+------------------
+
+1. Trouvez une image de constellation/espace (voir ASSETS.md)
+2. Renommez-la en "constellation-hero-bg.png"
+3. Placez-la dans ce dossier (assets/)
+4. Supprimez ce fichier PLACEHOLDER
+
+SPÉCIFICATIONS :
+-----------------
+- Format : PNG ou JPG
+- Résolution : 2560x1440px minimum
+- Poids : < 500KB
+- Contenu : Constellation, nébuleuse, ciel étoilé
+
+SOURCES RECOMMANDÉES :
+----------------------
+- NASA Image Library (https://images.nasa.gov/)
+- Unsplash (https://unsplash.com/s/photos/constellation)
+- Pexels (https://www.pexels.com/search/constellation/)
+
+FALLBACK ACTUEL :
+-----------------
+Un gradient CSS est utilisé automatiquement si l'image n'existe pas.
+Le site fonctionnera même sans cette image, mais l'effet sera moins spectaculaire.
+
+Voir assets/ASSETS.md pour plus de détails.

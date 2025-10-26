@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- ==================== PRIMARY META TAGS ==================== -->
+    <title>Constellation Tech - Transformez votre CV en Constellation Stellaire</title>
+    <meta name="title" content="Constellation Tech - CV en Constellation IA">
+    <meta name="description" content="Analysez votre CV tech et générez une visualisation spatiale unique avec l'IA Imagen de Google. Gratuit, rapide, et magnifique.">
+    <meta name="keywords" content="CV, visualisation, IA, constellation, tech, développeur, portfolio, Google Imagen">
+    <meta name="author" content="Florian RADUREAU">
+
+    <!-- ==================== OPEN GRAPH / FACEBOOK ==================== -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://florianRadureau.github.io/constellation-tech/">
+    <meta property="og:title" content="Constellation Tech - Transformez votre CV en Constellation">
+    <meta property="og:description" content="Analysez votre CV tech et générez une visualisation spatiale unique avec l'IA.">
+    <meta property="og:image" content="https://florianRadureau.github.io/constellation-tech/assets/og-image.png">
+
+    <!-- ==================== TWITTER ==================== -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://florianRadureau.github.io/constellation-tech/">
+    <meta property="twitter:title" content="Constellation Tech - CV en Constellation IA">
+    <meta property="twitter:description" content="Visualisez votre profil tech comme une constellation stellaire.">
+    <meta property="twitter:image" content="https://florianRadureau.github.io/constellation-tech/assets/og-image.png">
+
+    <!-- ==================== FAVICON ==================== -->
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+    <!-- ==================== FONTS ==================== -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- ==================== PRELOAD CRITICAL ASSETS ==================== -->
+    <link rel="preload" href="assets/constellation-hero-bg.png" as="image">
+
+    <!-- ==================== STYLES ==================== -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- ==================== CANVAS PARTICLES BACKGROUND ==================== -->
+    <canvas id="particles-canvas" class="particles-canvas" aria-hidden="true"></canvas>
+
+    <!-- ==================== MAIN CONTAINER ==================== -->
+    <main class="main-container">
+
+        <!-- ========================================
+             HERO SECTION - État Initial
+        ======================================== -->
+        <section class="hero" id="hero-section" role="banner">
+            <div class="hero-content">
+                <h1 class="hero-title" id="hero-title">
+                    Votre CV Tech devient une Constellation Spatiale
+                </h1>
+                <p class="hero-subtitle" id="hero-subtitle">
+                    L'IA analyse vos compétences et génère une visualisation cosmique unique en 15 secondes.
+                    Gratuit, confidentiel, spectaculaire.
+                </p>
+
+                <!-- Upload Button -->
+                <div class="upload-container">
+                    <label for="cv-upload" class="upload-button" tabindex="0" role="button" aria-label="Choisir un fichier CV à analyser">
+                        <svg class="upload-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M19 13v6c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2v-6H3l9-9 9 9h-2z" fill="currentColor"/>
+                        </svg>
+                        <span class="upload-text">Choisir mon CV</span>
+                        <span class="upload-hint">PDF ou DOCX • Max 5 MB</span>
+                    </label>
+                    <input
+                        type="file"
+                        id="cv-upload"
+                        accept=".pdf,.docx"
+                        style="display: none;"
+                        aria-label="Sélectionner un fichier CV"
+                    >
+                </div>
+
+                <!-- Privacy Notice -->
+                <p class="privacy-notice" id="privacy-notice">
+                    🔒 Nous ne conservons aucun CV. Votre fichier est analysé temporairement puis supprimé.
+                </p>
+            </div>
+        </section>
+
+        <!-- ========================================
+             LOADING SECTION - État Loading
+        ======================================== -->
+        <section class="loading-container" id="loading-section" style="display: none;" role="status" aria-live="polite" aria-busy="true">
+            <div class="loading-animation">
+                <!-- Étoiles animées -->
+                <div class="star star-1"></div>
+                <div class="star star-2"></div>
+                <div class="star star-3"></div>
+                <div class="star star-4"></div>
+                <div class="star star-5"></div>
+
+                <!-- Lignes de constellation SVG -->
+                <svg class="constellation-lines" width="300" height="300" viewBox="0 0 300 300" aria-hidden="true">
+                    <line x1="50" y1="80" x2="120" y2="140" class="line line-1" />
+                    <line x1="120" y1="140" x2="200" y2="100" class="line line-2" />
+                    <line x1="200" y1="100" x2="250" y2="180" class="line line-3" />
+                    <line x1="120" y1="140" x2="180" y2="220" class="line line-4" />
+                </svg>
+            </div>
+
+            <div class="loading-text">
+                <h2 class="loading-title">Génération de votre constellation...</h2>
+                <p class="loading-description">
+                    Notre IA analyse votre CV et génère une constellation unique.<br>
+                    Cela prend environ 15 secondes.
+                </p>
+
+                <!-- Progress Bar -->
+                <div class="loading-progress">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+
+                <!-- Step Text -->
+                <p class="loading-step" id="loading-step">Analyse des technologies...</p>
+            </div>
+        </section>
+
+        <!-- ========================================
+             RESULT SECTION - État Success
+        ======================================== -->
+        <section class="result-container" id="result-section" style="display: none;">
+            <!-- Image Constellation -->
+            <div class="result-image-wrapper">
+                <img
+                    src=""
+                    alt="Constellation générée représentant votre profil technique"
+                    class="constellation-image"
+                    id="result-image"
+                    loading="lazy"
+                    decoding="async"
+                >
+            </div>
+
+            <!-- Titre Généré -->
+            <h2 class="constellation-title" id="result-title"></h2>
+
+            <!-- Technologies Détectées -->
+            <div class="technologies-section">
+                <h3 class="section-title">Technologies détectées</h3>
+                <div class="technologies-grid" id="technologies-list" role="list">
+                    <!-- Badges générés dynamiquement -->
+                </div>
+            </div>
+
+            <!-- Statistiques -->
+            <div class="stats-section">
+                <div class="stat-card">
+                    <span class="stat-value" id="stat-total">0</span>
+                    <span class="stat-label">Technologies</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="stat-category">-</span>
+                    <span class="stat-label">Profil</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="stat-level">-</span>
+                    <span class="stat-label">Niveau</span>
+                </div>
+            </div>
+
+            <!-- Boutons d'Action -->
+            <div class="action-buttons">
+                <button class="btn btn-primary" id="btn-linkedin" aria-label="Partager sur LinkedIn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+                    </svg>
+                    Partager sur LinkedIn
+                </button>
+                <button class="btn btn-secondary" id="btn-copy" aria-label="Copier le lien de l'image">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                    </svg>
+                    Copier le lien
+                </button>
+                <button class="btn btn-secondary" id="btn-download" aria-label="Télécharger l'image">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Télécharger
+                </button>
+            </div>
+
+            <!-- Bouton Recommencer -->
+            <button class="btn-text" id="btn-restart">
+                ← Analyser un autre CV
+            </button>
+        </section>
+
+        <!-- ========================================
+             ERROR SECTION - État Error
+        ======================================== -->
+        <section class="error-container" id="error-section" style="display: none;" role="alert">
+            <div class="error-icon" aria-hidden="true">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+            </div>
+
+            <h2 class="error-title" id="error-title">Une erreur est survenue</h2>
+            <div class="error-message" id="error-message"></div>
+
+            <div class="error-actions" id="error-actions">
+                <!-- Boutons dynamiques selon le type d'erreur -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ==================== FOOTER ==================== -->
+    <footer class="site-footer">
+        <div class="footer-content">
+            <p class="privacy-notice">
+                🔒 Nous ne conservons aucun CV. Votre fichier est analysé temporairement puis supprimé.
+            </p>
+
+            <div class="footer-links">
+                <a href="#" id="footer-github" target="_blank" rel="noopener noreferrer" class="footer-link" aria-label="Code source sur GitHub">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/>
+                    </svg>
+                    Code Source
+                </a>
+                <span class="separator" aria-hidden="true">•</span>
+                <a href="#" id="footer-linkedin" target="_blank" rel="noopener noreferrer" class="footer-link" aria-label="Profil LinkedIn du créateur">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+                    </svg>
+                    Créateur
+                </a>
+            </div>
+
+            <p class="footer-credit">
+                Made with ❤️ and AI • Powered by Google Vertex AI Imagen
+            </p>
+        </div>
+    </footer>
+
+    <!-- ==================== SCRIPTS ==================== -->
+    <script src="config.js"></script>
+    <script src="particles.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
