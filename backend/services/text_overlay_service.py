@@ -220,27 +220,28 @@ class TextOverlayService:
         # Track occupied regions by labels
         occupied_boxes: list[Tuple[int, int, int, int]] = []
 
-        # Sort mappings by number of connections (descending)
-        # Stars with more connections (more constrained) are placed first
-        indexed_mappings = []
-        for idx, mapping in enumerate(mappings):
-            # Count connections for this star
+        # Count connections for each star and sort by constraint level
+        # Stars with more connections are more constrained → place them first
+        star_connection_counts = []
+        for idx in range(len(mappings)):
             conn_count = len([c for c in connections if idx in c])
-            indexed_mappings.append((idx, mapping, conn_count))
+            star_connection_counts.append((idx, conn_count))
 
-        # Sort by connection count descending (most constrained first)
-        indexed_mappings.sort(key=lambda x: x[2], reverse=True)
+        # Sort by connection count (descending) - most constrained first
+        star_connection_counts.sort(key=lambda x: x[1], reverse=True)
 
         logger.debug(
-            f"Placement order: {[(i, m.tech.name, c) for i, m, c in indexed_mappings]}"
+            f"Placing labels in constraint order: "
+            f"{[(idx, cnt) for idx, cnt in star_connection_counts]}"
         )
 
-        # Place labels in sorted order
-        for original_idx, mapping, conn_count in indexed_mappings:
+        # Process stars in order of constraints
+        for star_idx, conn_count in star_connection_counts:
+            mapping = mappings[star_idx]
             star = mapping.star
             tech_name = mapping.tech.name
 
-            # Find best position using topology-aware angle calculation
+            # Find best position using sector scoring algorithm
             position = self._find_label_position(
                 draw,
                 star.x,
@@ -249,7 +250,7 @@ class TextOverlayService:
                 occupied_boxes,
                 image.size,
                 all_star_positions,
-                original_idx,  # Use original index for connection lookup
+                star_idx,  # Star index for connection lookup
                 connections,
                 star_positions,
                 title,
@@ -387,98 +388,39 @@ class TextOverlayService:
         Returns:
             (x, y) position or None if no valid position found
         """
-        # Calculate optimal angle based on constellation topology
-        optimal_angle = self._calculate_angle_from_connections(
-            star_idx, star_x, star_y, connections, star_positions
-        )
-
         # Calculate label dimensions
         bbox = draw.textbbox((0, 0), text, font=self.label_font)
         label_width = bbox[2] - bbox[0]
         label_height = bbox[3] - bbox[1]
 
-        # Helper function to calculate position placing label center in gap direction
-        def calculate_position_for_angle(angle: float) -> Tuple[int, int]:
-            """
-            Calculate label position with center in direction of angle.
+        # Calculate sector scores (12 sectors of 30°)
+        sector_scores = self._calculate_sector_scores(
+            star_idx,
+            star_x,
+            star_y,
+            connections,
+            star_positions,
+            occupied_boxes,
+            image_size,
+            title,
+            num_sectors=12,
+        )
 
-            Ensures:
-            1. Label CENTER is placed in the direction of the angle (middle of largest gap)
-            2. Closest edge/corner is still at MIN_DISTANCE_FROM_STAR (60px)
+        # Try sectors in order of score (best first)
+        for sector_angle, score in sector_scores:
+            # Skip if score too low (likely forbidden zone)
+            if score < -100:
+                continue
 
-            Algorithm:
-            1. Determine octant to know which edge/corner is closest
-            2. Calculate distance to center based on octant
-            3. Place center at that distance in direction of angle
-            4. Convert center position to top-left corner (Pillow anchor)
+            # Calculate position with label CENTER at MIN_DISTANCE_FROM_STAR
+            center_x = star_x + self.MIN_DISTANCE_FROM_STAR * math.cos(sector_angle)
+            center_y = star_y + self.MIN_DISTANCE_FROM_STAR * math.sin(sector_angle)
 
-            Args:
-                angle: Angle in radians (direction of largest gap)
-
-            Returns:
-                (x, y) position for label top-left corner (Pillow anchor)
-            """
-            # Normalize angle to [0, 2π)
-            angle_norm = angle % (2 * math.pi)
-            pi = math.pi
-
-            # Determine octant and calculate distance to center
-            # Formula: distance_to_center = MIN_DISTANCE + distance_from_center_to_closest_edge
-            if angle_norm < pi / 8 or angle_norm >= 15 * pi / 8:
-                # Octant 0 (0° ±22.5°) - Right: left edge closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_width / 2
-            elif angle_norm < 3 * pi / 8:
-                # Octant 1 (45° ±22.5°) - Diagonal: bottom-left corner closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
-                    label_width / 2, label_height / 2
-                )
-            elif angle_norm < 5 * pi / 8:
-                # Octant 2 (90° ±22.5°) - Top: bottom edge closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_height / 2
-            elif angle_norm < 7 * pi / 8:
-                # Octant 3 (135° ±22.5°) - Diagonal: bottom-right corner closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
-                    label_width / 2, label_height / 2
-                )
-            elif angle_norm < 9 * pi / 8:
-                # Octant 4 (180° ±22.5°) - Left: right edge closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_width / 2
-            elif angle_norm < 11 * pi / 8:
-                # Octant 5 (225° ±22.5°) - Diagonal: top-right corner closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
-                    label_width / 2, label_height / 2
-                )
-            elif angle_norm < 13 * pi / 8:
-                # Octant 6 (270° ±22.5°) - Bottom: top edge closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + label_height / 2
-            else:  # angle_norm < 15 * pi / 8
-                # Octant 7 (315° ±22.5°) - Diagonal: top-left corner closest
-                distance_to_center = self.MIN_DISTANCE_FROM_STAR + math.hypot(
-                    label_width / 2, label_height / 2
-                )
-
-            # Place label CENTER at calculated distance in direction of angle
-            center_x = star_x + distance_to_center * math.cos(angle)
-            center_y = star_y + distance_to_center * math.sin(angle)
-
-            # Convert center position to top-left corner (Pillow anchor point)
+            # Convert center to top-left corner (Pillow anchor)
             x = int(center_x - label_width / 2)
             y = int(center_y - label_height / 2)
 
-            return (x, y)
-
-        # Try primary angle first, then alternatives with angular offsets
-        angle_offsets = [0, 15, -15, 30, -30, 45, -45, 60]  # In degrees
-        candidate_positions = []
-        for offset_deg in angle_offsets:
-            offset_rad = math.radians(offset_deg)
-            angle = optimal_angle + offset_rad
-            position = calculate_position_for_angle(angle)
-            candidate_positions.append(position)
-
-        # Try each candidate position
-        for x, y in candidate_positions:
-            # Get text bounding box
+            # Get bounding box for this position
             bbox = draw.textbbox((x, y), text, font=self.label_font)
             padding = 4
             test_box = (
@@ -488,6 +430,7 @@ class TextOverlayService:
                 bbox[3] + padding,
             )
 
+            # Verify all constraints
             # Check if within image bounds
             if (
                 test_box[0] < 0
@@ -502,31 +445,13 @@ class TextOverlayService:
                 continue
 
             # Check proximity to other stars (avoid placing between stars)
-            if self._too_close_to_other_stars(
-                test_box, star_x, star_y, all_stars
-            ):
-                continue
-
-            # Check collision with title zone
-            title_zone = self._get_title_zone(image_size, title)
-            if self._boxes_overlap(test_box, [title_zone]):
-                continue
-
-            # Check collision with watermark zone
-            watermark_zone = self._get_watermark_zone(image_size)
-            if self._boxes_overlap(test_box, [watermark_zone]):
-                continue
-
-            # Check collision with constellation lines
-            if self._intersects_constellation_lines(
-                test_box, connections, star_positions
-            ):
+            if self._too_close_to_other_stars(test_box, star_x, star_y, all_stars):
                 continue
 
             # Found valid position
             logger.debug(
-                f"Label placed at angle {math.degrees(optimal_angle):.0f}° "
-                f"from star ({star_x}, {star_y})"
+                f"Label placed at {math.degrees(sector_angle):.0f}° "
+                f"(score: {score:.1f}) from star ({star_x}, {star_y})"
             )
             return (x, y)
 
@@ -626,115 +551,6 @@ class TextOverlayService:
         )
 
         return optimal_angle
-
-    def _calculate_smart_angle(
-        self, star_x: int, star_y: int, all_stars: list[StarPosition]
-    ) -> float:
-        """
-        Calculate optimal angle for label placement.
-
-        Finds the angle (direction) with the least density of nearby stars,
-        creating a "clear zone" for the label.
-
-        Args:
-            star_x, star_y: Star coordinates
-            all_stars: All star positions in constellation
-
-        Returns:
-            Optimal angle in radians (0 = right, π/2 = down, π = left, 3π/2 = up)
-        """
-        # Collect angles to nearby stars (within influence radius)
-        nearby_angles: list[float] = []
-
-        for other_star in all_stars:
-            # Skip self
-            if other_star.x == star_x and other_star.y == star_y:
-                continue
-
-            # Calculate distance
-            dx = other_star.x - star_x
-            dy = other_star.y - star_y
-            distance = math.hypot(dx, dy)
-
-            # Only consider stars within influence radius
-            if distance < self.STAR_INFLUENCE_RADIUS:
-                angle = math.atan2(dy, dx)  # Angle from current star to other star
-                nearby_angles.append(angle)
-
-        # If no nearby stars, default to right (0 radians)
-        if not nearby_angles:
-            return 0.0
-
-        # Sort angles
-        nearby_angles.sort()
-
-        # Find largest gap between consecutive angles
-        max_gap = 0.0
-        optimal_angle = 0.0
-
-        for i in range(len(nearby_angles)):
-            # Calculate gap between this angle and next (wrapping around)
-            current = nearby_angles[i]
-            next_angle = nearby_angles[(i + 1) % len(nearby_angles)]
-
-            # Handle wraparound from π to -π
-            if i == len(nearby_angles) - 1:
-                gap = (2 * math.pi - current) + (next_angle + math.pi)
-            else:
-                gap = next_angle - current
-
-            if gap > max_gap:
-                max_gap = gap
-                # Place label in middle of gap
-                optimal_angle = current + gap / 2
-
-        # Normalize to [0, 2π)
-        optimal_angle = optimal_angle % (2 * math.pi)
-
-        logger.debug(
-            f"Optimal angle: {math.degrees(optimal_angle):.0f}° "
-            f"(gap: {math.degrees(max_gap):.0f}°, nearby stars: {len(nearby_angles)})"
-        )
-
-        return optimal_angle
-
-    def _generate_radial_positions(
-        self, star_x: int, star_y: int, center_angle: float, num_positions: int
-    ) -> list[Tuple[int, int]]:
-        """
-        Generate radial positions around a center angle.
-
-        Creates positions at MIN_DISTANCE_FROM_STAR, spreading ±45° around center angle.
-
-        Args:
-            star_x, star_y: Star coordinates
-            center_angle: Center angle in radians
-            num_positions: Number of positions to generate
-
-        Returns:
-            List of (x, y) positions
-        """
-        positions: list[Tuple[int, int]] = []
-
-        # Generate positions spreading ±45° around center angle
-        angle_spread = math.pi / 4  # 45 degrees in radians
-
-        for i in range(num_positions):
-            # Distribute angles evenly in ±45° range
-            if num_positions == 1:
-                angle_offset = 0
-            else:
-                angle_offset = (i / (num_positions - 1) - 0.5) * 2 * angle_spread
-
-            angle = center_angle + angle_offset
-
-            # Calculate position at MIN_DISTANCE_FROM_STAR
-            x = star_x + int(self.MIN_DISTANCE_FROM_STAR * math.cos(angle))
-            y = star_y + int(self.MIN_DISTANCE_FROM_STAR * math.sin(angle))
-
-            positions.append((x, y))
-
-        return positions
 
     def _too_close_to_other_stars(
         self,
@@ -1036,9 +852,7 @@ class TextOverlayService:
         star_positions: list[Tuple[int, int]],
     ) -> bool:
         """
-        Check if label box intersects or is too close to constellation lines.
-
-        Adds a safety margin of 15px around the label to ensure visual clearance.
+        Check if label box intersects any constellation connection lines.
 
         Args:
             label_box: Label bounding box (x1, y1, x2, y2)
@@ -1046,17 +860,8 @@ class TextOverlayService:
             star_positions: List of (x, y) positions for each star
 
         Returns:
-            True if label intersects or is within 15px of any connection line
+            True if label intersects any connection line
         """
-        # Add safety margin around label box
-        SAFETY_MARGIN = 15
-        expanded_box = (
-            label_box[0] - SAFETY_MARGIN,
-            label_box[1] - SAFETY_MARGIN,
-            label_box[2] + SAFETY_MARGIN,
-            label_box[3] + SAFETY_MARGIN,
-        )
-
         for conn in connections:
             idx1, idx2 = conn
 
@@ -1064,8 +869,189 @@ class TextOverlayService:
             p1 = star_positions[idx1]
             p2 = star_positions[idx2]
 
-            # Check if line segment intersects expanded label box
-            if self._line_rectangle_intersect(p1, p2, expanded_box):
+            # Check if line segment intersects label box
+            if self._line_rectangle_intersect(p1, p2, label_box):
                 return True
 
         return False
+
+    def _min_angular_distance(self, angle1: float, angle2: float) -> float:
+        """
+        Calculate minimum angular distance between two angles.
+
+        Args:
+            angle1: First angle in radians
+            angle2: Second angle in radians
+
+        Returns:
+            Minimum angular distance (0 to π radians)
+
+        Example:
+            >>> service._min_angular_distance(0, math.pi)
+            3.14159...  # π radians (180°)
+            >>> service._min_angular_distance(0, 2*math.pi - 0.1)
+            0.1  # Wraps around
+        """
+        diff = abs(angle1 - angle2)
+        return min(diff, 2 * math.pi - diff)
+
+    def _point_in_box(
+        self, point: Tuple[float, float], box: Tuple[int, int, int, int]
+    ) -> bool:
+        """
+        Check if a point is inside a rectangle.
+
+        Args:
+            point: (x, y) coordinates
+            box: Rectangle (x_min, y_min, x_max, y_max)
+
+        Returns:
+            True if point is inside box
+        """
+        x, y = point
+        return box[0] <= x <= box[2] and box[1] <= y <= box[3]
+
+    def _point_to_line_distance(
+        self,
+        point: Tuple[float, float],
+        line_p1: Tuple[int, int],
+        line_p2: Tuple[int, int],
+    ) -> float:
+        """
+        Calculate perpendicular distance from point to line segment.
+
+        Uses point-to-line formula:
+        distance = |((y2-y1)*px - (x2-x1)*py + x2*y1 - y2*x1)| / sqrt((y2-y1)² + (x2-x1)²)
+
+        Args:
+            point: (px, py) coordinates
+            line_p1: Line start point (x1, y1)
+            line_p2: Line end point (x2, y2)
+
+        Returns:
+            Perpendicular distance in pixels
+
+        Example:
+            >>> service._point_to_line_distance((50, 50), (0, 0), (100, 0))
+            50.0  # Point is 50px above horizontal line
+        """
+        px, py = point
+        x1, y1 = line_p1
+        x2, y2 = line_p2
+
+        # Handle degenerate case (line is a point)
+        if x1 == x2 and y1 == y2:
+            return math.hypot(px - x1, py - y1)
+
+        # Calculate perpendicular distance
+        numerator = abs((y2 - y1) * px - (x2 - x1) * py + x2 * y1 - y2 * x1)
+        denominator = math.sqrt((y2 - y1) ** 2 + (x2 - x1) ** 2)
+
+        return numerator / denominator
+
+    def _calculate_sector_scores(
+        self,
+        star_idx: int,
+        star_x: int,
+        star_y: int,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
+        occupied_boxes: list[Tuple[int, int, int, int]],
+        image_size: Tuple[int, int],
+        title: str,
+        num_sectors: int = 12,
+    ) -> list[Tuple[float, float]]:
+        """
+        Calculate score for each angular sector around the star.
+
+        Divides the space around the star into num_sectors sectors (default: 12 sectors of 30°).
+        For each sector, calculates a score based on:
+        - Distance to connections (penalty if < 30°)
+        - Presence of other labels (penalty)
+        - Forbidden zones: title, watermark, lines (strong penalty)
+
+        Args:
+            star_idx: Index of current star
+            star_x, star_y: Star coordinates
+            connections: List of constellation connections
+            star_positions: List of all star positions
+            occupied_boxes: List of already placed label boxes
+            image_size: Image dimensions
+            title: Constellation title (for forbidden zone)
+            num_sectors: Number of sectors to divide circle (default: 12)
+
+        Returns:
+            List of (sector_angle, score) tuples sorted by score (best first)
+
+        Example:
+            >>> scores = service._calculate_sector_scores(0, 300, 200, ...)
+            >>> best_angle, best_score = scores[0]
+            >>> print(f"Best sector: {math.degrees(best_angle):.0f}° (score: {best_score:.1f})")
+        """
+        sector_size = 2 * math.pi / num_sectors  # e.g., 30° in radians
+        scores = []
+
+        # 1. Calculate angles of all connections for this star
+        connection_angles = []
+        for conn in connections:
+            if star_idx in conn:
+                other_idx = conn[1] if conn[0] == star_idx else conn[0]
+                other_x, other_y = star_positions[other_idx]
+                angle = math.atan2(other_y - star_y, other_x - star_x)
+                connection_angles.append(angle)
+
+        # 2. For each sector, calculate score
+        for i in range(num_sectors):
+            sector_angle = i * sector_size  # Center of sector
+            score = 100.0  # Initial score
+
+            # PENALTY 1: Proximity to connections
+            for conn_angle in connection_angles:
+                angular_distance = self._min_angular_distance(sector_angle, conn_angle)
+                if angular_distance < math.radians(30):  # < 30°
+                    # Progressive penalty: closer = stronger
+                    penalty = 50 * (1 - angular_distance / math.radians(30))
+                    score -= penalty
+
+            # PENALTY 2: Proximity to other already placed labels
+            # Calculate hypothetical label position in this sector
+            test_x = star_x + self.MIN_DISTANCE_FROM_STAR * math.cos(sector_angle)
+            test_y = star_y + self.MIN_DISTANCE_FROM_STAR * math.sin(sector_angle)
+
+            # Count labels within 100px radius
+            nearby_labels = 0
+            for box in occupied_boxes:
+                box_center_x = (box[0] + box[2]) / 2
+                box_center_y = (box[1] + box[3]) / 2
+                distance = math.hypot(test_x - box_center_x, test_y - box_center_y)
+                if distance < 100:
+                    nearby_labels += 1
+
+            score -= nearby_labels * 20  # -20 points per nearby label
+
+            # PENALTY 3: Title zone (forbidden)
+            title_zone = self._get_title_zone(image_size, title)
+            if self._point_in_box((test_x, test_y), title_zone):
+                score -= 200  # Strong penalty
+
+            # PENALTY 4: Watermark zone (forbidden)
+            watermark_zone = self._get_watermark_zone(image_size)
+            if self._point_in_box((test_x, test_y), watermark_zone):
+                score -= 200  # Strong penalty
+
+            # PENALTY 5: Proximity to connection lines
+            # Check if position is within 30px of any line
+            for conn in connections:
+                p1 = star_positions[conn[0]]
+                p2 = star_positions[conn[1]]
+                distance_to_line = self._point_to_line_distance((test_x, test_y), p1, p2)
+                if distance_to_line < 30:
+                    # Progressive penalty
+                    penalty = 30 * (1 - distance_to_line / 30)
+                    score -= penalty
+
+            scores.append((sector_angle, score))
+
+        # Sort by score (best first)
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
