@@ -1,0 +1,38 @@
+# Configuration Cloud Build pour Constellation Tech Backend
+# Construit et pousse l'image Docker vers Google Container Registry
+
+steps:
+  # Étape 1 : Construire l'image Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/constellation-tech-backend:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/constellation-tech-backend:$SHORT_SHA'
+      - '.'
+
+  # Étape 2 : Pousser l'image vers GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/constellation-tech-backend:latest'
+
+  # Étape 3 : Pousser le tag avec SHA
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/constellation-tech-backend:$SHORT_SHA'
+
+# Images à sauvegarder dans le registry
+images:
+  - 'gcr.io/$PROJECT_ID/constellation-tech-backend:latest'
+  - 'gcr.io/$PROJECT_ID/constellation-tech-backend:$SHORT_SHA'
+
+# Options de build
+options:
+  logging: CLOUD_LOGGING_ONLY  # ✅ Cloud Logging uniquement (résout ton erreur)
+  machineType: 'N1_HIGHCPU_8'  # Machine puissante pour build rapide
+
+# Timeout (si le build prend plus de 20 min, c'est qu'il y a un problème)
+timeout: '1200s'  # 20 minutes
