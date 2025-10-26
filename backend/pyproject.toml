@@ -1,3 +1,76 @@
+[project]
+name = "constellation-tech"
+version = "1.2.0"
+description = "Transform CVs into beautiful constellation visualizations with AI"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Florian RADUREAU"}
+]
+license = "MIT"
+keywords = ["cv", "constellation", "visualization", "ai", "imagen", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Core FastAPI
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.32.0",
+    "starlette==0.38.6",
+    "pydantic==2.9.0",
+    "pydantic-settings==2.1.0",
+    "python-multipart==0.0.12",
+
+    # Google Cloud Platform
+    "google-cloud-aiplatform==1.70.0",
+    "google-cloud-storage==2.18.0",
+    "google-auth==2.41.1",
+
+    # Document Processing
+    "pypdf==5.1.0",
+    "python-docx==1.1.2",
+
+    # Image Processing
+    "pillow==10.4.0",
+    "opencv-python==4.8.1.78",
+    "numpy==1.26.4",  # Compatible with OpenCV (numpy 2.x not supported yet)
+
+    # HTTP & Utils
+    "httpx==0.26.0",
+    "aiofiles==23.2.1",
+    "python-dotenv==1.0.0",
+    "requests==2.32.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest==7.4.3",
+    "pytest-cov==4.1.0",
+
+    # Code Quality
+    "black==24.1.1",
+    "pylint==3.0.3",
+    "mypy==1.8.0",
+    "isort==5.13.2",
+    "bandit==1.7.6",
+
+    # Pre-commit
+    "pre-commit==3.6.0",
+
+    # Type Stubs
+    "types-requests==2.31.0.20240125",
+]
+
+[project.urls]
+Homepage = "https://github.com/florianradureau/constellation-tech"
+Repository = "https://github.com/florianradureau/constellation-tech"
+Issues = "https://github.com/florianradureau/constellation-tech/issues"
+
 [tool.black]
 line-length = 100
 target-version = ['py311']
@@ -83,5 +156,8 @@ exclude_lines = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["services", "models", "routers", "utils", "exceptions"]
