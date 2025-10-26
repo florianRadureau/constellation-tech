@@ -8,7 +8,6 @@ import io
 import logging
 import os
 import uuid
-from datetime import timedelta
 
 import google.auth
 from google.cloud import storage
@@ -69,21 +68,21 @@ class StorageService:
         self, image: Image.Image, filename: str | None = None
     ) -> str:
         """
-        Upload image to Cloud Storage and return signed URL.
+        Upload image to Cloud Storage and return public URL.
 
         Args:
             image: PIL Image to upload
             filename: Optional filename (generates UUID if not provided)
 
         Returns:
-            Signed URL (valid for configured days)
+            Public URL to the uploaded image
 
         Raises:
             StorageError: If upload fails
 
         Example:
             >>> url = await storage.upload(image)
-            >>> print(url)  # https://storage.googleapis.com/...
+            >>> print(url)  # https://storage.googleapis.com/bucket/file.png
         """
         if filename is None:
             filename = f"{uuid.uuid4()}.png"
@@ -106,12 +105,15 @@ class StorageService:
                 image_bytes, content_type="image/png", timeout=60
             )
 
+            # Make blob publicly accessible
+            blob.make_public()
+
             logger.info(
                 f"Upload successful ({len(image_bytes)} bytes) - {filename}"
             )
 
-            # Generate signed URL
-            url = self._generate_signed_url(blob)
+            # Return public URL
+            url = blob.public_url
 
             return url
 
@@ -132,25 +134,6 @@ class StorageService:
         image.save(buffer, format="PNG", optimize=True)
         buffer.seek(0)
         return buffer.read()
-
-    def _generate_signed_url(self, blob: storage.Blob) -> str:
-        """
-        Generate signed URL for blob.
-
-        Args:
-            blob: Cloud Storage blob
-
-        Returns:
-            Signed URL string
-        """
-        expiration = timedelta(days=settings.signed_url_expiration_days)
-
-        url = blob.generate_signed_url(
-            version="v4", expiration=expiration, method="GET"
-        )
-
-        logger.debug(f"Generated signed URL (valid {expiration.days} days)")
-        return url
 
     def delete(self, filename: str) -> bool:
         """

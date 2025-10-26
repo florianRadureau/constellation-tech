@@ -117,14 +117,6 @@ class Settings(BaseSettings):
         description="Maximum number of connections per star",
     )
 
-    # Storage Settings
-    signed_url_expiration_days: int = Field(
-        default=7,
-        ge=1,
-        le=365,
-        description="Expiration time for signed URLs in days",
-    )
-
     # Asset Paths
     @property
     def assets_dir(self) -> Path:
