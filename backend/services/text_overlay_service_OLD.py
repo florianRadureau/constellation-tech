@@ -70,6 +70,8 @@ class TextOverlayService:
         image: Image.Image,
         mappings: list[StarTechMapping],
         title: str,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
     ) -> Image.Image:
         """
         Add all text overlays to image.
@@ -78,12 +80,14 @@ class TextOverlayService:
             image: Base constellation image
             mappings: Star-technology mappings
             title: Constellation title
+            connections: List of (star_idx1, star_idx2) defining constellation lines
+            star_positions: List of (x, y) positions for each star
 
         Returns:
             Image with text overlays
 
         Example:
-            >>> final = service.compose(image, mappings, "La Constellation")
+            >>> final = service.compose(image, mappings, "La Constellation", connections, positions)
         """
         # Work on a copy
         result = image.copy()
@@ -91,8 +95,8 @@ class TextOverlayService:
         # Add title
         result = self.add_title(result, title)
 
-        # Add technology labels with fixed positioning
-        result = self.add_tech_labels(result, mappings)
+        # Add technology labels with topology-aware positioning
+        result = self.add_tech_labels(result, mappings, connections, star_positions, title)
 
         # Add watermark
         result = self.add_watermark(result)
@@ -188,48 +192,89 @@ class TextOverlayService:
         self,
         image: Image.Image,
         mappings: list[StarTechMapping],
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
+        title: str,
     ) -> Image.Image:
         """
-        Add technology labels with fixed positioning (30px below stars).
+        Add technology labels with topology-aware positioning.
+
+        Uses constellation topology (connection lines) to place labels in optimal positions
+        away from the constellation structure. Avoids title, watermark, and constellation lines.
 
         Args:
             image: Base image
             mappings: Star-technology mappings
+            connections: List of (star_idx1, star_idx2) defining constellation lines
+            star_positions: List of (x, y) positions for each star
+            title: Constellation title (for forbidden zone calculation)
 
         Returns:
             Image with labels
         """
         draw = ImageDraw.Draw(image)
 
-        for mapping in mappings:
+        # Extract all star positions for collision checking
+        all_star_positions = [mapping.star for mapping in mappings]
+
+        # Track occupied regions by labels
+        occupied_boxes: list[Tuple[int, int, int, int]] = []
+
+        # Count connections for each star and sort by constraint level
+        # Stars with more connections are more constrained → place them first
+        star_connection_counts = []
+        for idx in range(len(mappings)):
+            conn_count = len([c for c in connections if idx in c])
+            star_connection_counts.append((idx, conn_count))
+
+        # Sort by connection count (descending) - most constrained first
+        star_connection_counts.sort(key=lambda x: x[1], reverse=True)
+
+        logger.debug(
+            f"Placing labels in constraint order: "
+            f"{[(idx, cnt) for idx, cnt in star_connection_counts]}"
+        )
+
+        # Process stars in order of constraints
+        for star_idx, conn_count in star_connection_counts:
+            mapping = mappings[star_idx]
             star = mapping.star
             tech_name = mapping.tech.name
-            category = mapping.tech.category
 
-            # Find position (30px below star)
+            # Find best position using sector scoring algorithm
             position = self._find_label_position(
                 draw,
                 star.x,
                 star.y,
                 tech_name,
+                occupied_boxes,
                 image.size,
+                all_star_positions,
+                star_idx,  # Star index for connection lookup
+                connections,
+                star_positions,
+                title,
             )
 
             if position is None:
                 logger.warning(
-                    f"Could not place label for {tech_name} at ({star.x}, {star.y})"
+                    f"Could not place label for {tech_name} at star ({star.x}, {star.y})"
                 )
                 continue
 
             x, y = position
 
-            # Draw premium label
+            # Draw premium label with glow effect and colored border
+            category = mapping.tech.category
             image, label_box = self._draw_premium_label(
                 image, x, y, tech_name, category
             )
 
             # Update draw object after image modification
             draw = ImageDraw.Draw(image)
+
+            # Mark as occupied
+            occupied_boxes.append(label_box)
 
         logger.debug(f"Added {len(mappings)} technology labels")
         return image
@@ -305,54 +350,113 @@ class TextOverlayService:
         star_x: int,
         star_y: int,
         text: str,
-        image_size: tuple[int, int],
-    ) -> tuple[int, int] | None:
+        occupied_boxes: list[Tuple[int, int, int, int]],
+        image_size: Tuple[int, int],
+        all_stars: list[StarPosition],
+        star_idx: int,
+        connections: list[Tuple[int, int]],
+        star_positions: list[Tuple[int, int]],
+        title: str,
+    ) -> Tuple[int, int] | None:
         """
-        Place label 30px below star (simple fixed placement).
+        Find best position for label using topology-aware angle calculation.
+
+        Algorithm:
+        1. Calculate optimal angle based on constellation connections
+        2. Calculate position with octant-aware distance correction
+        3. Try position, checking collisions with:
+           - Other labels
+           - Other stars
+           - Title zone
+           - Watermark zone
+           - Constellation lines
+        4. If collision, try alternative positions with angular offsets
+        5. Return first valid position or None
 
         Args:
             draw: ImageDraw object
             star_x, star_y: Star coordinates
             text: Label text
-            image_size: Image dimensions (width, height)
+            occupied_boxes: List of occupied bounding boxes
+            image_size: Image dimensions
+            all_stars: All star positions in constellation
+            star_idx: Index of this star for connection lookup
+            connections: List of constellation connections
+            star_positions: List of all star positions
+            title: Constellation title (for forbidden zone calculation)
 
         Returns:
-            (x, y) position or None if out of bounds
+            (x, y) position or None if no valid position found
         """
         # Calculate label dimensions
         bbox = draw.textbbox((0, 0), text, font=self.label_font)
         label_width = bbox[2] - bbox[0]
         label_height = bbox[3] - bbox[1]
 
-        # Place label 30px below star (center of label at 30px below star center)
-        center_x = star_x
-        center_y = star_y + 30
-
-        # Convert center to top-left corner (Pillow anchor)
-        x = int(center_x - label_width / 2)
-        y = int(center_y - label_height / 2)
-
-        # Check if within image bounds
-        bbox = draw.textbbox((x, y), text, font=self.label_font)
-        padding = 4
-        test_box = (
-            bbox[0] - padding,
-            bbox[1] - padding,
-            bbox[2] + padding,
-            bbox[3] + padding,
+        # Calculate sector scores (12 sectors of 30°)
+        sector_scores = self._calculate_sector_scores(
+            star_idx,
+            star_x,
+            star_y,
+            connections,
+            star_positions,
+            occupied_boxes,
+            image_size,
+            title,
+            num_sectors=12,
         )
 
-        if (
-            test_box[0] < 0
-            or test_box[1] < 0
-            or test_box[2] > image_size[0]
-            or test_box[3] > image_size[1]
-        ):
-            logger.warning(f"Label '{text}' at ({star_x}, {star_y}) out of bounds")
-            return None
+        # Try sectors in order of score (best first)
+        for sector_angle, score in sector_scores:
+            # Skip if score too low (likely forbidden zone)
+            if score < -100:
+                continue
 
-        logger.debug(f"Label '{text}' placed 30px below star at ({star_x}, {star_y})")
-        return (x, y)
+            # Calculate position with label CENTER at MIN_DISTANCE_FROM_STAR
+            center_x = star_x + self.MIN_DISTANCE_FROM_STAR * math.cos(sector_angle)
+            center_y = star_y + self.MIN_DISTANCE_FROM_STAR * math.sin(sector_angle)
+
+            # Convert center to top-left corner (Pillow anchor)
+            x = int(center_x - label_width / 2)
+            y = int(center_y - label_height / 2)
+
+            # Get bounding box for this position
+            bbox = draw.textbbox((x, y), text, font=self.label_font)
+            padding = 4
+            test_box = (
+                bbox[0] - padding,
+                bbox[1] - padding,
+                bbox[2] + padding,
+                bbox[3] + padding,
+            )
+
+            # Verify all constraints
+            # Check if within image bounds
+            if (
+                test_box[0] < 0
+                or test_box[1] < 0
+                or test_box[2] > image_size[0]
+                or test_box[3] > image_size[1]
+            ):
+                continue
+
+            # Check collision with occupied label boxes
+            if self._boxes_overlap(test_box, occupied_boxes):
+                continue
+
+            # Check proximity to other stars (avoid placing between stars)
+            if self._too_close_to_other_stars(test_box, star_x, star_y, all_stars):
+                continue
+
+            # Found valid position
+            logger.debug(
+                f"Label placed at {math.degrees(sector_angle):.0f}° "
+                f"(score: {score:.1f}) from star ({star_x}, {star_y})"
+            )
+            return (x, y)
+
+        # No valid position found
+        return None
 
     def _calculate_angle_from_connections(
         self,

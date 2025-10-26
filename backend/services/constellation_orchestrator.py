@@ -211,9 +211,7 @@ class ConstellationOrchestrator:
             final_image = self.text_overlay.compose(
                 composed_image,
                 mappings,
-                title,
-                template["connections"],
-                template["stars"][:num_mappings]
+                title
             )
             logger.info("✓ Text overlays added")
 

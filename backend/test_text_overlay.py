@@ -84,7 +84,7 @@ def main():
     print("🏷️  Ajout des labels via TextOverlayService.compose()...")
     title = "Test Placement Labels"
     overlay_service = TextOverlayService()
-    result = overlay_service.compose(image, mappings, title, connections, star_positions)
+    result = overlay_service.compose(image, mappings, title)
     print("   ✓ Labels ajoutés")
 
     # 6. Sauvegarder
