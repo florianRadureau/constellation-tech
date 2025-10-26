@@ -105,14 +105,11 @@ class StorageService:
                 image_bytes, content_type="image/png", timeout=60
             )
 
-            # Make blob publicly accessible
-            blob.make_public()
-
             logger.info(
                 f"Upload successful ({len(image_bytes)} bytes) - {filename}"
             )
 
-            # Return public URL
+            # Return public URL (bucket is already public via IAM policy)
             url = blob.public_url
 
             return url
