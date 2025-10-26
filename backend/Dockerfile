@@ -16,18 +16,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copier les fichiers de dépendances
-COPY pyproject.toml ./
+# Copier tout le code de l'application
+COPY . .
 
 # Installer les dépendances Python (sans dev dependencies)
 RUN pip install --no-cache-dir -e .
-
-# Copier le code de l'application
-COPY . .
 
 # Exposer le port (Cloud Run utilise PORT env var)
 ENV PORT=8080
