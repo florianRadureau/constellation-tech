@@ -28,11 +28,13 @@ dependencies = [
     # Google Cloud Platform
     "google-cloud-aiplatform==1.70.0",
     "google-cloud-storage==2.18.0",
+    "google-cloud-vision==3.7.0",
     "google-auth==2.41.1",
 
     # Document Processing
     "pypdf==5.1.0",
     "python-docx==1.1.2",
+    "PyMuPDF==1.24.0",  # PDF to images for OCR
 
     # Image Processing
     "pillow==10.4.0",
@@ -119,6 +121,7 @@ module = [
     "PIL.*",
     "google.cloud.*",
     "vertexai.*",
+    "fitz.*",  # PyMuPDF
 ]
 ignore_missing_imports = true
 

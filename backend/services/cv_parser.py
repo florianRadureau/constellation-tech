@@ -2,10 +2,15 @@
 Service d'extraction de texte depuis CV (PDF et DOCX).
 """
 import io
+import logging
 import re
-from pypdf import PdfReader
+
 from docx import Document
+from pypdf import PdfReader
+
 from exceptions import CVParserError
+
+logger = logging.getLogger(__name__)
 
 
 class CVParser:
@@ -127,6 +132,9 @@ class CVParser:
         """
         Extrait le texte d'un PDF.
 
+        Tente d'abord l'extraction normale (PDFs avec texte).
+        Si aucun texte extractible (PDF scanné), utilise OCR automatiquement.
+
         Args:
             file_content: Contenu binaire du fichier PDF
 
@@ -137,36 +145,54 @@ class CVParser:
             CVParserError: Si l'extraction échoue
         """
         try:
-            # 1. BytesIO
+            # 1. Tentative extraction normale (PDFs avec texte)
             with io.BytesIO(file_content) as pdf_file:
-                # 2. PdfReader
                 reader = PdfReader(pdf_file)
 
-            # 3. Vérifier qu'il y a des pages
+                # Vérifier qu'il y a des pages
                 if len(reader.pages) == 0:
-                    raise CVParserError("...")
+                    raise CVParserError("Le PDF ne contient aucune page")
 
-                # 4. Extraire le texte de chaque page
+                # Extraire le texte de chaque page
                 text_parts = []
                 for page in reader.pages:
                     page_text = page.extract_text()
                     if page_text:
                         text_parts.append(page_text)
 
-                # 5. Vérifier qu'on a du texte
+                # Vérifier qu'on a du texte
                 if not text_parts:
-                    raise CVParserError("Aucun texte extractible...")
+                    raise CVParserError("Aucun texte extractible")
 
-                # 6. Joindre et nettoyer
+                # Joindre et nettoyer
                 full_text = "\n".join(text_parts)
                 return CVParser._clean_text(full_text)
 
-        except CVParserError:
-            # Re-raise nos propres erreurs
+        except CVParserError as e:
+            # Si "Aucun texte extractible", essayer OCR en fallback
+            if "Aucun texte extractible" in str(e):
+                logger.info(
+                    "PDF scanné détecté (pas de texte extractible), "
+                    "utilisation OCR automatique"
+                )
+                try:
+                    from services.ocr_service import OCRService
+
+                    ocr_service = OCRService()
+                    text = ocr_service.extract_text_from_pdf(file_content)
+                    logger.info("OCR extraction successful")
+                    return text
+                except Exception as ocr_error:
+                    logger.error(f"OCR extraction failed: {ocr_error}", exc_info=True)
+                    raise CVParserError(
+                        f"Impossible d'extraire le texte (PDF scanné, OCR échoué): {str(ocr_error)}"
+                    ) from ocr_error
+            # Autres erreurs CVParserError: re-raise
             raise
         except Exception as e:
             # Capture les autres erreurs
-            raise CVParserError(f"Erreur lecture PDF: {str(e)}")
+            logger.error(f"PDF extraction failed: {e}", exc_info=True)
+            raise CVParserError(f"Erreur lecture PDF: {str(e)}") from e
 
     @staticmethod
     def extract_text_from_docx(file_content: bytes) -> str:
