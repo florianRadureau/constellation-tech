@@ -20,7 +20,7 @@ from services.tech_analyzer import TechAnalyzer
 from services.technology_mapper import TechnologyMapper
 from services.text_overlay_service import TextOverlayService
 from services.title_generator import TitleGenerator
-from utils.constellation_templates import get_constellation_template
+from utils.constellation_templates import CONSTELLATIONS, ConstellationTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,75 @@ class ConstellationOrchestrator:
         self.storage = StorageService()
 
         logger.info("ConstellationOrchestrator initialized successfully")
+
+    def _select_template(
+        self, num_technologies: int, cv_hash: int
+    ) -> ConstellationTemplate:
+        """
+        Select constellation template based on number of technologies.
+
+        Rules:
+        - Only templates with stars <= num_technologies are eligible
+        - If num_technologies >= 5, prefer templates with >= 5 stars
+        - Random selection with reproducible seed (based on CV hash)
+
+        Args:
+            num_technologies: Number of technologies detected
+            cv_hash: Hash of CV text for reproducible randomness
+
+        Returns:
+            Selected ConstellationTemplate
+
+        Raises:
+            ValueError: If no template available (should never happen in practice)
+
+        Example:
+            >>> template = self._select_template(55, hash("cv_text"))
+            >>> print(template["name"])  # Random among all templates
+        """
+        import random
+
+        all_templates = list(CONSTELLATIONS.values())
+
+        # Filter templates with stars <= num_technologies
+        eligible = [t for t in all_templates if len(t["stars"]) <= num_technologies]
+
+        if not eligible:
+            # Fallback: Use smallest template available
+            logger.warning(
+                f"No template with <= {num_technologies} stars, "
+                f"using smallest available"
+            )
+            eligible = [min(all_templates, key=lambda t: len(t["stars"]))]
+
+        # Prefer larger templates when many technologies
+        if num_technologies >= 10:
+            # For 10+ technologies, prefer templates with >= 8 stars
+            preferred = [t for t in eligible if len(t["stars"]) >= 8]
+            if preferred:
+                eligible = preferred
+                logger.debug(
+                    f"Preferring {len(preferred)} templates with >= 8 stars"
+                )
+        elif num_technologies >= 5:
+            # For 5-9 technologies, prefer templates with >= 5 stars
+            preferred = [t for t in eligible if len(t["stars"]) >= 5]
+            if preferred:
+                eligible = preferred
+                logger.debug(
+                    f"Preferring {len(preferred)} templates with >= 5 stars"
+                )
+
+        # Random selection with reproducible seed
+        random.seed(cv_hash)
+        selected = random.choice(eligible)
+
+        logger.info(
+            f"Selected from {len(eligible)} eligible templates "
+            f"(tech_count={num_technologies})"
+        )
+
+        return selected
 
     async def generate(
         self, cv_content: bytes, cv_filename: str
@@ -153,9 +222,10 @@ class ConstellationOrchestrator:
 
             # Step 6: Select constellation template
             logger.info("[6/11] Selecting constellation template...")
-            # Use hash of CV text for deterministic template selection
-            template_index = hash(text) % 3  # Cycles through 3 available templates
-            template = get_constellation_template(template_index)
+            # Use smart selection based on number of technologies
+            cv_hash = hash(text)
+            num_techs = len(technologies)
+            template = self._select_template(num_techs, cv_hash)
             logger.info(f"✓ Selected template: {template['name']} ({len(template['stars'])} stars)")
 
             # Step 7: Map technologies to constellation positions
