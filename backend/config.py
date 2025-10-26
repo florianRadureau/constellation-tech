@@ -45,12 +45,6 @@ class Settings(BaseSettings):
         description="Path to GCP service account JSON file",
     )
 
-    # Logo.dev API
-    logo_dev_api_key: SecretStr = Field(
-        ...,
-        description="API key for logo.dev service (required)",
-    )
-
     # Application Configuration
     daily_quota: int = Field(
         default=100,
@@ -138,11 +132,6 @@ class Settings(BaseSettings):
         return Path(__file__).parent / "assets"
 
     @property
-    def logos_dir(self) -> Path:
-        """Directory for cached technology logos."""
-        return self.assets_dir / "logos"
-
-    @property
     def backgrounds_dir(self) -> Path:
         """Directory for pre-generated backgrounds."""
         return self.assets_dir / "backgrounds"
@@ -154,7 +143,6 @@ class Settings(BaseSettings):
 
     def ensure_directories(self) -> None:
         """Create required asset directories if they don't exist."""
-        self.logos_dir.mkdir(parents=True, exist_ok=True)
         self.backgrounds_dir.mkdir(parents=True, exist_ok=True)
         self.fonts_dir.mkdir(parents=True, exist_ok=True)
 
