@@ -28,6 +28,14 @@ class TitleGenerator:
     """
 
     METAPHORS: ClassVar[Dict[str, list[str]]] = {
+        "Fullstack": [
+            "L'Architecte des Deux Mondes",
+            "La Constellation Complète",
+            "Le Pont Entre les Étoiles",
+            "L'Équilibre Parfait du Code",
+            "La Symphonie Full-Stack",
+            "Le Tisseur d'Architectures",
+        ],
         "Frontend": [
             "La Constellation du Pixel Parfait",
             "L'Étoile d'Argent des Interfaces",

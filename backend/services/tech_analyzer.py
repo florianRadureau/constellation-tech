@@ -196,8 +196,12 @@ class TechAnalyzer:
         categories = [tech["category"] for tech in tech_details]
         category_counts = Counter(categories)
 
-        # Catégorie dominante (la plus représentée)
-        dominant_category = category_counts.most_common(1)[0][0]
+        # Early return : Si au moins 3 catégories différentes → Fullstack
+        if len(category_counts) >= 3:
+            dominant_category = "Fullstack"
+        else:
+            # Catégorie dominante (la plus représentée)
+            dominant_category = category_counts.most_common(1)[0][0]
 
         # Estimation du niveau basé sur le nombre de technologies
         total_techs = len(tech_details)
