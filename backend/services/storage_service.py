@@ -10,6 +10,7 @@ import os
 import uuid
 from datetime import timedelta
 
+import google.auth
 from google.cloud import storage
 from google.oauth2 import service_account
 from PIL import Image
@@ -41,17 +42,23 @@ class StorageService:
         logger.info(f"StorageService initialized (bucket: {settings.gcs_bucket_name})")
 
     def _initialize_client(self) -> None:
-        """Initialize Google Cloud Storage client."""
+        """
+        Initialize Google Cloud Storage client.
+
+        Uses service account file in development or default credentials in production (Cloud Run).
+        """
         credentials_path = settings.google_application_credentials
 
-        if not os.path.exists(credentials_path):
-            raise FileNotFoundError(
-                f"GCP credentials not found: {credentials_path}"
+        # Check if credentials file exists (local development)
+        if os.path.exists(credentials_path):
+            logger.info(f"Using service account file: {credentials_path}")
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path
             )
-
-        credentials = service_account.Credentials.from_service_account_file(
-            credentials_path
-        )
+        else:
+            # Production (Cloud Run) - use default credentials
+            logger.info("Using default environment credentials (Cloud Run)")
+            credentials, _ = google.auth.default()
 
         self.client = storage.Client(
             project=settings.gcp_project_id, credentials=credentials

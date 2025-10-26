@@ -10,6 +10,7 @@ import os
 from datetime import date, datetime
 from typing import ClassVar
 
+import google.auth
 from google.cloud import aiplatform
 from google.oauth2 import service_account
 from PIL import Image
@@ -57,24 +58,25 @@ class ImageGenerator:
 
     def _initialize_vertex_ai(self) -> None:
         """
-        Initialize Vertex AI with credentials from settings.
+        Initialize Vertex AI with credentials.
 
-        Raises:
-            FileNotFoundError: If credentials file doesn't exist
+        Uses service account file in development or default credentials in production (Cloud Run).
         """
         credentials_path = settings.google_application_credentials
 
-        if not os.path.exists(credentials_path):
-            raise FileNotFoundError(
-                f"GCP credentials not found at: {credentials_path}. "
-                f"Please ensure the service account JSON file exists."
+        # Check if credentials file exists (local development)
+        if os.path.exists(credentials_path):
+            logger.info(f"Using service account file: {credentials_path}")
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
-
-        # Load credentials
-        credentials = service_account.Credentials.from_service_account_file(
-            credentials_path,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        )
+        else:
+            # Production (Cloud Run) - use default credentials
+            logger.info("Using default environment credentials (Cloud Run)")
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
 
         # Initialize Vertex AI
         aiplatform.init(
